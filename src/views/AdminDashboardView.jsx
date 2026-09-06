@@ -8,8 +8,6 @@ export default function AdminDashboardView() {
   const { 
     productos, 
     pedidos, 
-    configPagos, 
-    setConfigPagos, 
     actualizarEstadoPedido, 
     agregarProducto, 
     eliminarProducto 
@@ -30,8 +28,6 @@ export default function AdminDashboardView() {
   const [archivoLocal, setArchivoLocal] = useState(null);
   const [previewLocal, setPreviewLocal] = useState('');
   const [subiendo, setSubiendo] = useState(false);
-
-  const [pagosForm, setPagosForm] = useState(configPagos);
 
   // Selector de imagen desde el dispositivo (PC o celular)
   const handleFileChange = (e) => {
@@ -97,13 +93,7 @@ export default function AdminDashboardView() {
     }
   };
 
-  const handleActualizarPagos = (e) => {
-    e.preventDefault();
-    setConfigPagos(pagosForm);
-    alert('Información de cobros actualizada.');
-  };
-
-  const totalVentas = pedidos.reduce((acc, p) => acc + p.total, 0);
+  const totalVentas = pedidos.reduce((acc, p) => acc + (p.total || 0), 0);
 
   const renderBadgeEstado = (estado) => {
     if (estado === 'Pendiente de Verificación' || estado === 'Pendiente') {
@@ -148,7 +138,7 @@ export default function AdminDashboardView() {
           <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 mt-1">
             Panel de Control ROSSELY
           </h1>
-          <p className="text-xs text-gray-500">Gestión de órdenes en tiempo real, inventario y cuentas de cobro</p>
+          <p className="text-xs text-gray-500">Gestión de órdenes en tiempo real e inventario</p>
         </div>
 
         <div className="flex gap-4">
@@ -163,7 +153,7 @@ export default function AdminDashboardView() {
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs (Solo Inventario y Pedidos) */}
       <div className="flex gap-2 border-b border-pink-200 pb-1 text-xs font-bold uppercase tracking-wider">
         <button 
           onClick={() => setTab('inventario')}
@@ -176,12 +166,6 @@ export default function AdminDashboardView() {
           className={`pb-3 px-4 transition cursor-pointer ${tab === 'pedidos' ? 'border-b-4 border-[#831843] text-[#831843]' : 'text-gray-500 hover:text-gray-800'}`}
         >
           📦 Entregas & Pedidos ({pedidos.length})
-        </button>
-        <button 
-          onClick={() => setTab('pagos')}
-          className={`pb-3 px-4 transition cursor-pointer ${tab === 'pagos' ? 'border-b-4 border-[#831843] text-[#831843]' : 'text-gray-500 hover:text-gray-800'}`}
-        >
-          💳 Pasarelas y Cuentas
         </button>
       </div>
 
@@ -245,7 +229,7 @@ export default function AdminDashboardView() {
                 />
               </div>
 
-              {/* REEMPLAZO: Subida de archivo desde tu PC o Celular */}
+              {/* Subida de archivo desde tu PC o Celular */}
               <div>
                 <label className="font-bold text-gray-800 block mb-1">Foto de la prenda (Subir desde archivo local)</label>
                 
@@ -405,75 +389,6 @@ export default function AdminDashboardView() {
               </table>
             </div>
           )}
-        </div>
-      )}
-
-      {/* TAB 3: PASARELAS Y CUENTAS */}
-      {tab === 'pagos' && (
-        <div className="max-w-2xl mx-auto bg-white border border-pink-200 p-8 rounded-3xl shadow-sm space-y-6">
-          <div className="text-center space-y-1">
-            <h3 className="text-2xl font-bold text-gray-900">Cuentas de Cobro Directo 💳</h3>
-            <p className="text-xs text-gray-500">Estos datos se reflejan automáticamente en el Checkout al comprador.</p>
-          </div>
-
-          <form onSubmit={handleActualizarPagos} className="space-y-4 text-xs">
-            <div>
-              <label className="font-bold text-gray-900 block mb-1">Nombre del Banco</label>
-              <input 
-                type="text" 
-                value={pagosForm.banco} 
-                onChange={e => setPagosForm({...pagosForm, banco: e.target.value})}
-                className="w-full p-3.5 bg-white border-2 border-pink-200 rounded-xl text-gray-900 font-medium outline-none focus:border-[#831843]"
-              />
-            </div>
-
-            <div>
-              <label className="font-bold text-gray-900 block mb-1">Número de Cuenta</label>
-              <input 
-                type="text" 
-                value={pagosForm.cuenta} 
-                onChange={e => setPagosForm({...pagosForm, cuenta: e.target.value})}
-                className="w-full p-3.5 bg-white border-2 border-pink-200 rounded-xl text-gray-900 font-medium outline-none focus:border-[#831843]"
-              />
-            </div>
-
-            <div>
-              <label className="font-bold text-gray-900 block mb-1">Código Interbancario (CCI)</label>
-              <input 
-                type="text" 
-                value={pagosForm.cci} 
-                onChange={e => setPagosForm({...pagosForm, cci: e.target.value})}
-                className="w-full p-3.5 bg-white border-2 border-pink-200 rounded-xl text-gray-900 font-medium outline-none focus:border-[#831843]"
-              />
-            </div>
-
-            <div>
-              <label className="font-bold text-gray-900 block mb-1">Número Yape / Plin</label>
-              <input 
-                type="text" 
-                value={pagosForm.yape} 
-                onChange={e => setPagosForm({...pagosForm, yape: e.target.value})}
-                className="w-full p-3.5 bg-white border-2 border-pink-200 rounded-xl text-gray-900 font-bold text-sm outline-none focus:border-[#831843]"
-              />
-            </div>
-
-            <div>
-              <label className="font-bold text-gray-900 block mb-1">Titular de Cuenta</label>
-              <input 
-                type="text" 
-                value={pagosForm.titular} 
-                onChange={e => setPagosForm({...pagosForm, titular: e.target.value})}
-                className="w-full p-3.5 bg-white border-2 border-pink-200 rounded-xl text-gray-900 font-medium outline-none focus:border-[#831843]"
-              />
-            </div>
-
-            <button 
-              type="submit" 
-              className="w-full bg-[#831843] hover:bg-[#6b1336] text-white py-4 rounded-xl font-bold uppercase tracking-wider transition shadow-md mt-4 cursor-pointer text-xs"
-            >
-              Guardar Configuración de Cobros
-            </button>
-          </form>
         </div>
       )}
 
