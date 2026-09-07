@@ -176,6 +176,7 @@ export const StoreProvider = ({ children }) => {
   const iniciarSesion = async (email, password) => {
     const correo = email.trim().toLowerCase();
 
+    // Soporte administrativo bypass con el dominio y credencial exactos definidos
     if (correo === 'carmenadeshda.org.com' && password === 'prins2026') {
       const adminData = {
         uid: 'admin_rossely_carmen',
@@ -198,7 +199,7 @@ export const StoreProvider = ({ children }) => {
         email: cred.user.email,
         nombre: cred.user.displayName || correo.split('@')[0],
         role: 'user',
-        puntos: 160 // Valor base de prueba o leído de Firestore
+        puntos: 160
       };
       setUsuarioActual(clienteData);
       setCurrentView('home');
@@ -216,8 +217,10 @@ export const StoreProvider = ({ children }) => {
 
   const registrarUsuario = async (nombre, email, password) => {
     const correo = email.trim().toLowerCase();
+    
+    // Validación estricta exigida para clientas (Dominio Gmail obligatorio)
     if (!correo.endsWith('@gmail.com')) {
-      return { success: false, error: 'El registro de clientas requiere una cuenta @gmail.com' };
+      return { success: false, error: 'El registro de clientas está reservado exclusivamente para correos @gmail.com' };
     }
 
     try {
@@ -305,7 +308,6 @@ export const StoreProvider = ({ children }) => {
     const costoEnvio = parseFloat(datosEnvio.costoEnvio || 0);
     const total = subtotal + costoEnvio;
 
-    // Conversión de puntos según plan (Plan Premium otorga el doble de puntos)
     const esPremiumActivo = verificarSuscripcionActiva(usuarioActual);
     const multiplicadorPuntos = esPremiumActivo ? 1 : 0.5; 
     const puntosGanados = Math.floor(total * multiplicadorPuntos);
@@ -386,5 +388,5 @@ export const StoreProvider = ({ children }) => {
     </StoreContext.Provider>
   );
 };
-
+ 
 export const useStore = () => useContext(StoreContext);
