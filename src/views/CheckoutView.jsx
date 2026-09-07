@@ -1,217 +1,202 @@
 import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
+import { db } from '../firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { compressAndConvertToBase64 } from '../services/imageOptimizer';
+import { ShieldCheck, QrCode, UploadCloud, CheckCircle2, Loader2, ArrowLeft } from 'lucide-react';
 
 export default function CheckoutView() {
-  const { carrito, usuarioActual, registrarPedido, navegarA } = useStore();
-  const [paso, setPaso] = useState(3);
-  const [metodoPago, setMetodoPago] = useState('yape');
-  const [terminos, setTerminos] = useState(true);
+  const { carrito, limpiarCarrito, navegarA, usuarioActual } = useStore();
+  const [nombre, setNombre] = useState(usuarioActual?.nombre || '');
   const [telefono, setTelefono] = useState('');
-  const [ordenGenerada, setOrdenGenerada] = useState(null);
+  const [direccion, setDireccion] = useState('');
+  const [ciudad, setCiudad] = useState('Lima');
+  const [archivoComprobante, setArchivoComprobante] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [procesando, setProcesando] = useState(false);
+  const [completado, setCompletado] = useState(false);
+  const [idPedido, setIdPedido] = useState('');
 
-  if (!usuarioActual) {
+  const subtotal = carrito.reduce((acc, it) => acc + (it.precio * it.cantidad), 0);
+  const envio = ciudad.toLowerCase() === 'lima' ? 10 : 15;
+  const total = subtotal + envio;
+
+  const handleSeleccionarComprobante = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setArchivoComprobante(file);
+      setPreviewUrl(URL.createObjectURL(file));
+    }
+  };
+
+  const handleConfirmarPedido = async (e) => {
+    e.preventDefault();
+    if (carrito.length === 0) return alert("Tu bolsa está vacía.");
+    if (!archivoComprobante) return alert("Por favor adjunta la captura de tu transferencia o QR.");
+
+    setProcesando(true);
+    try {
+      const comprobanteBase64 = await compressAndConvertToBase64(archivoComprobante, 900, 0.7);
+
+      const docRef = await addDoc(collection(db, 'pedidos'), {
+        cliente: {
+          nombre,
+          telefono,
+          direccion,
+          ciudad,
+          email: usuarioActual?.email || 'invitado@rossely.pe'
+        },
+        items: carrito,
+        subtotal,
+        envio,
+        total,
+        estado: 'Pendiente de Verificación',
+        comprobanteImg: comprobanteBase64,
+        fecha: serverTimestamp()
+      });
+
+      setIdPedido(docRef.id);
+      setCompletado(true);
+      limpiarCarrito();
+    } catch (err) {
+      console.error("Error al registrar pedido:", err);
+      alert("Hubo un problema procesando tu comprobante.");
+    } finally {
+      setProcesando(false);
+    }
+  };
+
+  if (completado) {
     return (
-      <div className="max-w-md mx-auto my-16 bg-white border border-gray-200 p-8 rounded-xl text-center space-y-4 shadow-sm">
-        <h2 className="text-xl font-bold text-gray-900">Inicia sesión para continuar</h2>
-        <p className="text-xs text-gray-500">Debes tener una cuenta registrada para procesar tu orden y coordinar la entrega.</p>
-        <button 
-          onClick={() => navegarA('auth')}
-          className="w-full btn-ripley-dark uppercase"
+      <div className="w-full max-w-lg mx-auto py-20 px-6 text-center space-y-5">
+        <div className="w-16 h-16 bg-[#FDF5F7] border border-[#F8D7E0] text-[#701A3B] rounded-full flex items-center justify-center mx-auto">
+          <CheckCircle2 className="w-8 h-8" />
+        </div>
+        <h2 className="font-serif text-3xl font-bold text-stone-900">¡Pedido Registrado con Éxito!</h2>
+        <p className="text-xs text-stone-600 leading-relaxed font-light">
+          Hemos recibido tu orden y comprobante de pago. Nuestro equipo verificará la transacción y preparará tu empaque de seda ROSSELY.
+        </p>
+        <div className="bg-white p-4 rounded-2xl border border-[#F8D7E0] text-xs font-mono text-[#701A3B]">
+          Código de seguimiento: #{idPedido.slice(0, 8)}
+        </div>
+        <button
+          onClick={() => navegarA('home')}
+          className="bg-[#701A3B] text-white px-8 py-3 rounded-full text-xs font-bold uppercase tracking-widest cursor-pointer"
         >
-          Ir a Iniciar Sesión
+          Volver a la Tienda
         </button>
       </div>
     );
   }
 
-  const subtotal = carrito.reduce((acc, item) => acc + item.precio, 0);
-  const total = subtotal;
-
-  const handlePagar = () => {
-    if (!terminos) return alert('Debes aceptar los términos y condiciones');
-    if (!telefono) return alert('Por favor ingresa tu número de celular');
-
-    const id = registrarPedido({
-      nombre: usuarioActual.nombre,
-      email: usuarioActual.email,
-      telefono,
-      direccion: "Lima, Perú",
-      metodoPago: metodoPago === 'yape' ? 'Yape (+51 971 490 117)' : 'BCP Soles'
-    });
-
-    setOrdenGenerada(id);
-    setPaso(5);
-  };
-
   return (
-    <div className="max-w-6xl mx-auto space-y-6 py-4">
-      {/* 1. STEPPER EXACTO DE RIPLEY (Captura 6) */}
-      <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-        <div className="flex justify-between items-center max-w-2xl mx-auto relative">
-          <div className="absolute top-3.5 left-6 right-6 h-0.5 bg-gray-200 -z-0"></div>
+    <div className="w-full py-10 px-6 sm:px-10 md:px-16 max-w-6xl mx-auto space-y-8 font-sans">
+      <button onClick={() => navegarA('cart')} className="inline-flex items-center gap-2 text-xs text-stone-500 hover:text-stone-900 cursor-pointer">
+        <ArrowLeft className="w-4 h-4" /> Regresar a la bolsa
+      </button>
 
-          {[
-            { n: 1, t: "Carro de compras", s: "Revisa tus productos" },
-            { n: 2, t: "Inicio de sesión", s: "Cuenta validada" },
-            { n: 3, t: "Entrega", s: "Elige donde recibir" },
-            { n: 4, t: "Pago", s: "Elige como vas a pagar" },
-            { n: 5, t: "¡Listo!", s: "Revisa el detalle" }
-          ].map(st => {
-            const activo = paso >= st.n;
-            return (
-              <div key={st.n} className="flex flex-col items-center bg-white px-2 z-10 text-center">
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
-                  activo ? 'bg-[#E6007E] text-white' : 'bg-gray-200 text-gray-500'
-                }`}>
-                  {st.n}
-                </div>
-                <p className={`text-[11px] font-semibold mt-1 ${activo ? 'text-gray-800' : 'text-gray-400'}`}>{st.t}</p>
-                <p className="text-[9px] text-gray-400 hidden sm:block">{st.s}</p>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+        
+        {/* Formulario de Envío */}
+        <form onSubmit={handleConfirmarPedido} className="lg:col-span-7 bg-white p-8 rounded-3xl border border-[#FCE4EC] shadow-xs space-y-4">
+          <h2 className="font-serif text-xl font-bold text-stone-900">Detalles de Entrega</h2>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider mb-1">Nombre Completo *</label>
+            <input required type="text" value={nombre} onChange={e => setNombre(e.target.value)} className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider mb-1">Teléfono Móvil *</label>
+              <input required type="tel" value={telefono} onChange={e => setTelefono(e.target.value)} className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none" />
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider mb-1">Ciudad / Destino *</label>
+              <select value={ciudad} onChange={e => setCiudad(e.target.value)} className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none">
+                <option value="Lima">Lima Metropolitana (S/. 10)</option>
+                <option value="Provincias">Provincias del Perú (S/. 15)</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider mb-1">Dirección Exacta de Envío *</label>
+            <input required type="text" placeholder="Av. Los Conquistadores 420, Dpto 301" value={direccion} onChange={e => setDireccion(e.target.value)} className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none" />
+          </div>
+
+          {/* Subida de Comprobante */}
+          <div className="pt-2">
+            <label className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider mb-1">Adjuntar Captura del Pago *</label>
+            <label className="w-full border-2 border-dashed border-[#F8D7E0] hover:border-[#701A3B] rounded-2xl p-5 flex flex-col items-center justify-center cursor-pointer bg-[#FDF5F7]/40 transition">
+              <UploadCloud className="w-6 h-6 text-[#701A3B] mb-1" />
+              <span className="text-xs text-stone-600 font-medium">Subir foto de comprobante</span>
+              <input type="file" accept="image/*" onChange={handleSeleccionarComprobante} className="hidden" />
+            </label>
+
+            {previewUrl && (
+              <div className="mt-3 relative w-28 h-28 rounded-xl overflow-hidden border border-[#F8D7E0]">
+                <img src={previewUrl} alt="Comprobante" className="w-full h-full object-cover" />
               </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* 2. PASO 5: PANTALLA ¡LISTO! */}
-      {paso === 5 ? (
-        <div className="max-w-lg mx-auto bg-white border border-gray-200 p-8 rounded-xl text-center space-y-4 shadow-sm">
-          <div className="w-12 h-12 bg-green-100 text-green-700 rounded-full flex items-center justify-center mx-auto text-2xl font-bold">
-            ✓
-          </div>
-          <h2 className="text-2xl font-bold text-gray-900">¡Orden Recibida!</h2>
-          <p className="text-xs text-gray-600">Número de orden oficial: <b className="text-gray-900">#{ordenGenerada}</b></p>
-          
-          <div className="bg-gray-50 border p-4 rounded-lg text-left text-xs space-y-2">
-            <p className="font-bold text-gray-800">Instrucciones de Pago:</p>
-            <p>1. Transfiere <b>S/ {total.toFixed(2)}</b> vía Yape al número <b>+51 971 490 117</b>.</p>
-            <p>2. Envía tu comprobante con el número de orden <b>#{ordenGenerada}</b>.</p>
-            <p>3. El administrador validará el despacho en el sistema central.</p>
+            )}
           </div>
 
-          <button onClick={() => navegarA('home')} className="w-full btn-ripley-dark">
-            Volver al Inicio
+          <button
+            type="submit"
+            disabled={procesando}
+            className="w-full bg-[#701A3B] hover:bg-[#56132D] text-white py-4 rounded-xl font-bold uppercase tracking-widest text-xs transition duration-300 flex items-center justify-center gap-2 cursor-pointer shadow-xs disabled:opacity-50 mt-4"
+          >
+            {procesando ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirmar Pedido y Enviar'}
           </button>
-        </div>
-      ) : (
-        /* 3. PROCESO DE PAGO (Capturas 7, 8 y 9) */
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          
-          {/* Izquierda: Medios de Pago */}
-          <div className="lg:col-span-8 space-y-4">
-            <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
-              <h2 className="text-lg font-bold text-gray-900">Medios de pago</h2>
+        </form>
 
-              <div className="bg-[#EBF5FF] text-[#1E429F] p-3 rounded-lg text-xs flex items-center gap-2">
-                <span>ℹ️</span> Recuerda activar las compras por internet y proteger tus pagos.
-              </div>
+        {/* Panel Lateral: Marco Satinado con QR */}
+        <div className="lg:col-span-5 space-y-6">
+          <div className="bg-white p-7 rounded-3xl border border-[#FCE4EC] shadow-xs text-center space-y-4">
+            <span className="text-[10px] font-bold text-[#A24869] uppercase tracking-[0.25em]">
+              Código QR Exclusivo de Pago
+            </span>
 
-              {/* Opción Yape */}
-              <div 
-                onClick={() => setMetodoPago('yape')}
-                className={`p-4 border rounded-xl cursor-pointer transition ${
-                  metodoPago === 'yape' ? 'border-[#E6007E] bg-pink-50/20' : 'border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-3">
-                    <span className="w-8 h-8 rounded-full bg-purple-700 text-white font-bold text-xs flex items-center justify-center">
-                      S/
-                    </span>
-                    <div>
-                      <p className="font-bold text-xs text-gray-800">Yape Directo</p>
-                      <p className="text-[11px] text-purple-700 font-semibold">+51 971 490 117</p>
-                    </div>
-                  </div>
-                  <input type="radio" checked={metodoPago === 'yape'} readOnly className="accent-[#E6007E]" />
-                </div>
-
-                {metodoPago === 'yape' && (
-                  <div className="mt-4 pt-3 border-t border-gray-100 text-xs space-y-2 text-gray-600">
-                    <p className="font-bold text-gray-800">Pago con Yape:</p>
-                    <p>1. Ingresa a tu App Yape y transfiere el monto exacto al número <b>+51 971 490 117</b>.</p>
-                    <p>2. Ingresa tu número de celular para asociar tu pedido:</p>
-                    <input 
-                      type="tel" 
-                      placeholder="Tu número de celular Yape *" 
-                      value={telefono} 
-                      onChange={e => setTelefono(e.target.value)}
-                      className="ripley-input w-full"
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Opción BCP */}
-              <div 
-                onClick={() => setMetodoPago('bcp')}
-                className={`p-4 border rounded-xl cursor-pointer transition ${
-                  metodoPago === 'bcp' ? 'border-[#E6007E] bg-pink-50/20' : 'border-gray-200'
-                }`}
-              >
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-3">
-                    <span className="w-8 h-8 rounded-full bg-orange-500 text-white font-bold text-xs flex items-center justify-center">
-                      BCP
-                    </span>
-                    <div>
-                      <p className="font-bold text-xs text-gray-800">Transferencia Bancaria BCP</p>
-                      <p className="text-[11px] text-gray-500">Cta: 191-8839201-0-12</p>
-                    </div>
-                  </div>
-                  <input type="radio" checked={metodoPago === 'bcp'} readOnly className="accent-[#E6007E]" />
-                </div>
-              </div>
-
-              {/* Boleta */}
-              <div className="border-t pt-4 text-xs text-gray-600">
-                <p className="font-bold text-gray-800 mb-1">Boleta Electrónica</p>
-                <p>La boleta se enviará al siguiente correo: <b>{usuarioActual.email}</b></p>
-              </div>
-            </div>
-          </div>
-
-          {/* Derecha: Resumen de la compra */}
-          <div className="lg:col-span-4">
-            <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4 shadow-sm">
-              <h3 className="text-sm font-bold text-gray-900">Resumen de la compra</h3>
-
-              <div className="space-y-2 text-xs border-b pb-3">
-                <div className="flex justify-between text-gray-600">
-                  <span>Productos ({carrito.length})</span>
-                  <span className="text-gray-900 font-semibold">S/ {subtotal.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-gray-600">
-                  <span>Entregas (1)</span>
-                  <span className="text-green-700 font-semibold">S/ 0.00</span>
-                </div>
-              </div>
-
-              <div className="flex justify-between text-sm font-bold text-gray-900">
-                <span>Total a pagar:</span>
-                <span>S/ {total.toFixed(2)}</span>
-              </div>
-
-              <div className="flex items-start gap-2 pt-1 text-[11px] text-gray-500">
-                <input 
-                  type="checkbox" 
-                  checked={terminos} 
-                  onChange={e => setTerminos(e.target.checked)} 
-                  className="accent-[#E6007E] mt-0.5"
+            {/* Marco de Lujo con QR Oficial */}
+            <div className="p-4 bg-gradient-to-b from-[#FFF5F7] to-[#FDF5F7] rounded-2xl border border-[#F8D7E0] inline-block shadow-inner">
+              <div className="w-48 h-48 bg-white p-2 rounded-xl flex items-center justify-center border border-[#FCE4EC] mx-auto">
+                <img 
+                  src="/qr-rossely.png" 
+                  alt="QR de Pago Oficial ROSSELY" 
+                  className="w-full h-full object-contain"
+                  onError={(e) => {
+                    // Fallback visual en caso de que la imagen aún no esté en /public
+                    e.target.style.display = 'none';
+                    e.target.nextSibling.style.display = 'flex';
+                  }}
                 />
-                <label>Acepto los términos y condiciones y políticas de privacidad</label>
+                <div style={{ display: 'none' }} className="flex-col items-center justify-center text-center p-2">
+                  <QrCode className="w-16 h-16 text-[#701A3B] mb-2" />
+                  <span className="text-[9px] font-bold text-stone-500">QR Oficial de Pago</span>
+                </div>
               </div>
+            </div>
 
-              <button 
-                onClick={handlePagar}
-                className="w-full btn-ripley-dark py-3"
-              >
-                Pagar
-              </button>
+            <div className="space-y-1">
+              <p className="text-xs font-serif font-bold text-stone-900">
+                Titular: Carmennadeshdadelrosario Estrada
+              </p>
+              <p className="text-[10px] text-stone-400 font-light">
+                Escanea desde tu app Yape, Plin o banca móvil preferida.
+              </p>
+            </div>
+
+            <div className="border-t border-[#FCE4EC] pt-4 text-xs space-y-1.5 text-stone-600">
+              <div className="flex justify-between"><span>Subtotal:</span><span>S/. {subtotal.toFixed(2)}</span></div>
+              <div className="flex justify-between"><span>Envío ({ciudad}):</span><span>S/. {envio.toFixed(2)}</span></div>
+              <div className="flex justify-between font-bold text-sm text-[#701A3B] pt-2 border-t border-stone-100">
+                <span>Total a Transferir:</span><span>S/. {total.toFixed(2)}</span>
+              </div>
             </div>
           </div>
         </div>
-      )}
+
+      </div>
     </div>
   );
 }

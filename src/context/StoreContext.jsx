@@ -7,6 +7,7 @@ import {
   updateDoc, 
   deleteDoc, 
   doc, 
+  setDoc,
   serverTimestamp, 
   query, 
   orderBy 
@@ -34,7 +35,7 @@ export const StoreProvider = ({ children }) => {
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Si el usuario es admin al montar, abre directamente el panel de admin
+  // Vista inicial
   const [currentView, setCurrentView] = useState(() => {
     const saved = localStorage.getItem('rossely_sesion');
     if (saved) {
@@ -52,13 +53,19 @@ export const StoreProvider = ({ children }) => {
   useEffect(() => {
     try {
       const colRef = collection(db, 'productos');
-      const unsubscribe = onSnapshot(colRef, (snapshot) => {
+      const q = query(colRef, orderBy('createdAt', 'desc'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
         const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
         setProductos(list);
         setCargandoProductos(false);
-      }, (err) => {
-        console.warn("Modo local productos:", err.message);
-        setCargandoProductos(false);
+      }, () => {
+        // Fallback sin orderBy por si no hay índice
+        const unsubFallback = onSnapshot(colRef, (snapshot) => {
+          const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+          setProductos(list);
+          setCargandoProductos(false);
+        });
+        return () => unsubFallback();
       });
       return () => unsubscribe();
     } catch (e) {
@@ -66,7 +73,7 @@ export const StoreProvider = ({ children }) => {
     }
   }, []);
 
-  // 2. Escuchar pedidos en tiempo real (ordenados por fecha si es posible)
+  // 2. Escuchar pedidos en tiempo real
   useEffect(() => {
     try {
       const colRef = collection(db, 'pedidos');
@@ -75,11 +82,11 @@ export const StoreProvider = ({ children }) => {
         const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
         setPedidos(list);
       }, () => {
-        // Fallback sin orderBy por si no hay índice
-        onSnapshot(colRef, (snapshot) => {
+        const unsubFallback = onSnapshot(colRef, (snapshot) => {
           const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
           setPedidos(list);
         });
+        return () => unsubFallback();
       });
       return () => unsubscribe();
     } catch (e) {
@@ -87,9 +94,49 @@ export const StoreProvider = ({ children }) => {
     }
   }, []);
 
+  // 3. Sincronización del carrito Multidispositivo en tiempo real (Cloud Sync)
   useEffect(() => {
-    localStorage.setItem('rossely_carrito', JSON.stringify(carrito));
-  }, [carrito]);
+    // Si no hay usuario logueado o es admin, lee de local
+    if (!usuarioActual?.uid || esAdmin) {
+      const saved = localStorage.getItem('rossely_carrito');
+      setCarrito(saved ? JSON.parse(saved) : []);
+      return;
+    }
+
+    // Escucha en vivo el documento del carrito del usuario en Firestore
+    const cartDocRef = doc(db, 'usuarios', usuarioActual.uid, 'carrito', 'actual');
+    const unsubscribe = onSnapshot(cartDocRef, (snap) => {
+      if (snap.exists()) {
+        const cloudItems = snap.data().items || [];
+        setCarrito(cloudItems);
+        localStorage.setItem('rossely_carrito', JSON.stringify(cloudItems));
+      } else {
+        setCarrito([]);
+      }
+    }, (error) => {
+      console.error("Error sincronizando carrito remoto:", error);
+    });
+
+    return () => unsubscribe();
+  }, [usuarioActual?.uid, esAdmin]);
+
+  // Persistir cambios en Firestore y localStorage
+  const sincronizarCarrito = async (nuevosItems) => {
+    setCarrito(nuevosItems);
+    localStorage.setItem('rossely_carrito', JSON.stringify(nuevosItems));
+
+    if (usuarioActual?.uid && !esAdmin) {
+      try {
+        const cartDocRef = doc(db, 'usuarios', usuarioActual.uid, 'carrito', 'actual');
+        await setDoc(cartDocRef, { 
+          items: nuevosItems, 
+          ultimaModificacion: serverTimestamp() 
+        }, { merge: true });
+      } catch (err) {
+        console.error("Error al actualizar carrito en nube:", err);
+      }
+    }
+  };
 
   useEffect(() => {
     if (usuarioActual) {
@@ -111,7 +158,7 @@ export const StoreProvider = ({ children }) => {
         role: 'admin'
       };
       setUsuarioActual(adminData);
-      setCarrito([]); // El admin no usa carrito
+      setCarrito([]);
       setCurrentView('admin');
       return { success: true, role: 'admin' };
     }
@@ -154,40 +201,54 @@ export const StoreProvider = ({ children }) => {
       await signOut(auth);
     } catch (e) {}
     setUsuarioActual(null);
+    setCarrito([]);
+    localStorage.removeItem('rossely_sesion');
+    localStorage.removeItem('rossely_carrito');
     setCurrentView('home');
   };
 
-  // Carrito: RESTRICCIÓN ESTRICTA PARA ADMINISTRADOR
+  // Carrito: Restricción estricta para Administrador + Cloud Sync
   const agregarAlCarrito = (producto, talla = 'M') => {
     if (esAdmin) {
       alert("Acción deshabilitada: Las cuentas de Administrador no pueden realizar compras ni usar el carrito.");
       return;
     }
-    setCarrito(prev => [...prev, { ...producto, cartItemId: Date.now() + Math.random(), tallaSeleccionada: talla }]);
+    const nuevoItem = {
+      ...producto,
+      cartItemId: Date.now() + Math.random(),
+      tallaSeleccionada: talla,
+      cantidad: 1
+    };
+    const nuevoCarrito = [...carrito, nuevoItem];
+    sincronizarCarrito(nuevoCarrito);
     setCurrentView('cart');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const removerDelCarrito = (cartItemId) => {
-    setCarrito(prev => prev.filter(item => item.cartItemId !== cartItemId));
+    const nuevoCarrito = carrito.filter(item => item.cartItemId !== cartItemId);
+    sincronizarCarrito(nuevoCarrito);
   };
 
-  const limpiarCarrito = () => setCarrito([]);
+  const limpiarCarrito = () => {
+    sincronizarCarrito([]);
+  };
 
   // Pedidos (Clientes)
-  const registrarPedido = async (datosEnvio) => {
+  const registrarPedido = async (datosEnvio, comprobanteBase64 = null) => {
     if (esAdmin) {
       alert("El administrador no puede generar órdenes.");
       return null;
     }
-    const total = carrito.reduce((acc, item) => acc + item.precio, 0);
+    const total = carrito.reduce((acc, item) => acc + (parseFloat(item.precio) || 0) * (item.cantidad || 1), 0);
 
     const nuevoPedido = {
       cliente: datosEnvio,
       items: carrito,
       total,
       estado: "Pendiente",
-      fecha: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString(),
+      comprobanteImg: comprobanteBase64,
+      fecha: new Date().toLocaleDateString('es-PE') + ' ' + new Date().toLocaleTimeString('es-PE'),
       createdAt: serverTimestamp()
     };
 
@@ -241,7 +302,6 @@ export const StoreProvider = ({ children }) => {
   };
 
   const navegarA = (vista, producto = null) => {
-    // Si intenta entrar al carrito o checkout siendo admin, redirigir al panel
     if (esAdmin && (vista === 'cart' || vista === 'checkout')) {
       setCurrentView('admin');
       return;
