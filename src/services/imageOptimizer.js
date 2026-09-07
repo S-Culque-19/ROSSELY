@@ -1,44 +1,46 @@
-export const compressAndConvertToBase64 = (file, maxWidth = 1200, quality = 0.75) => {
-  return new Promise((resolve, reject) => {
-    if (!file) return reject(new Error("No se proporcionó ningún archivo"));
+export const procesarMultiplesImágenes = async (files) => {
+  const promesas = Array.from(files).map((file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target.result;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
 
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
+          // Redimensionamiento inteligente para mantener el peso bajo control (Max 800px)
+          const MAX_WIDTH = 800;
+          const MAX_HEIGHT = 800;
 
-    reader.onload = (event) => {
-      const img = new Image();
-      img.src = event.target.result;
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
 
-      img.onload = () => {
-        let width = img.width;
-        let height = img.height;
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
 
-        if (width > maxWidth) {
-          height = Math.round((height * maxWidth) / width);
-          width = maxWidth;
-        }
-
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-
-        const ctx = canvas.getContext('2d');
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(img, 0, 0, width, height);
-
-        // Exportar como WebP si el navegador lo soporta, o JPEG como fallback
-        let compressedBase64 = canvas.toDataURL('image/webp', quality);
-        if (compressedBase64.indexOf('data:image/webp') !== 0) {
-          compressedBase64 = canvas.toDataURL('image/jpeg', quality);
-        }
-
-        resolve(compressedBase64);
+          // Compresión JPEG al 75% de calidad para garantizar tamaño inferior a 150KB por foto
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+          resolve(dataUrl);
+        };
+        img.onerror = (error) => reject(error);
       };
-
-      img.onerror = (err) => reject(err);
-    };
-
-    reader.onerror = (err) => reject(err);
+      reader.onerror = (error) => reject(error);
+    });
   });
+
+  return Promise.all(promesas);
 };

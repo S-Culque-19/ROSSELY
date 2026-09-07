@@ -28,8 +28,6 @@ import {
   MapPin,
   MessageSquare,
   Send,
-  User,
-  CheckCheck,
   Moon,
   Gift,
   Save,
@@ -38,47 +36,50 @@ import {
   Crown
 } from 'lucide-react';
 
-// Compresión Canvas integrada localmente (Cero dependencias de Storage)
-const optimizarImagenCanvas = (file, maxWidth = 1100, quality = 0.75) => {
-  return new Promise((resolve, reject) => {
-    if (!file) return reject(new Error("Archivo inválido"));
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (e) => {
-      const img = new Image();
-      img.src = e.target.result;
-      img.onload = () => {
-        let w = img.width;
-        let h = img.height;
-        if (w > maxWidth) {
-          h = Math.round((h * maxWidth) / w);
-          w = maxWidth;
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(img, 0, 0, w, h);
+// Compresión Canvas integrada localmente que soporta múltiples imágenes y alta eficiencia
+const optimizarMultiplesImagenesCanvas = async (files, maxWidth = 1100, quality = 0.75) => {
+  const promesas = Array.from(files).map((file) => {
+    return new Promise((resolve, reject) => {
+      if (!file) return reject(new Error("Archivo inválido"));
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (e) => {
+        const img = new Image();
+        img.src = e.target.result;
+        img.onload = () => {
+          let w = img.width;
+          let h = img.height;
+          if (w > maxWidth) {
+            h = Math.round((h * maxWidth) / w);
+            w = maxWidth;
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, w, h);
 
-        let dataUrl = canvas.toDataURL('image/webp', quality);
-        if (dataUrl.indexOf('data:image/webp') !== 0) {
-          dataUrl = canvas.toDataURL('image/jpeg', quality);
-        }
-        resolve(dataUrl);
+          let dataUrl = canvas.toDataURL('image/webp', quality);
+          if (dataUrl.indexOf('data:image/webp') !== 0) {
+            dataUrl = canvas.toDataURL('image/jpeg', quality);
+          }
+          resolve(dataUrl);
+        };
+        img.onerror = reject;
       };
-      img.onerror = reject;
-    };
-    reader.onerror = reject;
+      reader.onerror = reject;
+    });
   });
+  return Promise.all(promesas);
 };
 
 export default function AdminDashboardView() {
   const { productos, pedidos, actualizarEstadoPedido, eliminarProducto, calcularMembresiaRuleta } = useStore();
   const [tabActiva, setTabActiva] = useState('inventario'); // 'inventario' | 'pedidos' | 'balance' | 'mensajes' | 'config' | 'vip' | 'suscripciones'
 
-  // Estados del Formulario de Prendas
+  // Estados del Formulario de Prendas (Soporta múltiples imágenes)
   const [nombre, setNombre] = useState('');
   const [precio, setPrecio] = useState('');
   const [costoUnitario, setCostoUnitario] = useState('');
@@ -86,9 +87,9 @@ export default function AdminDashboardView() {
   const [categoria, setCategoria] = useState('Pijamas');
   const [tallas, setTallas] = useState('S, M, L');
   const [descripcion, setDescripcion] = useState('');
-  const [imagenArchivo, setImagenArchivo] = useState(null);
-  const [previewUrl, setPreviewUrl] = useState('');
+  const [imagenesPrendas, setImagenesPrendas] = useState([]); // Array de strings Base64
   const [guardando, setGuardando] = useState(false);
+  const [cargandoImgs, setCargandoImgs] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
 
   // Selector temporal para Balance Contable
@@ -210,25 +211,32 @@ export default function AdminDashboardView() {
     }
   };
 
-  const handleSeleccionarImagen = (e) => {
-    const f = e.target.files[0];
-    if (f) {
-      setImagenArchivo(f);
-      setPreviewUrl(URL.createObjectURL(f));
+  const handleSeleccionarImagenesMultiples = async (e) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setCargandoImgs(true);
+    try {
+      const urlsOptimizadas = await optimizarMultiplesImagenesCanvas(files, 1100, 0.75);
+      setImagenesPrendas(prev => [...prev, ...urlsOptimizadas]);
+      mostrarToast(`✦ ${urlsOptimizadas.length} imagen(es) optimizada(s) con éxito.`);
+    } catch (err) {
+      console.error(err);
+      alert("Error al comprimir las imágenes.");
+    } finally {
+      setCargandoImgs(false);
     }
   };
 
   const handleGuardarProducto = async (e) => {
     e.preventDefault();
-    if (!nombre.trim() || !precio || !imagenArchivo) {
-      alert("Por favor completa el nombre, precio y selecciona la foto de la prenda.");
+    if (!nombre.trim() || !precio || imagenesPrendas.length === 0) {
+      alert("Por favor completa el nombre, precio y sube al menos una fotografía de la prenda.");
       return;
     }
 
     setGuardando(true);
     try {
-      const base64Opt = await optimizarImagenCanvas(imagenArchivo, 1100, 0.75);
-
       await addDoc(collection(db, 'productos'), {
         nombre: nombre.trim(),
         precio: parseFloat(precio),
@@ -237,7 +245,8 @@ export default function AdminDashboardView() {
         categoria,
         tallas: tallas.split(',').map(t => t.trim().toUpperCase()),
         descripcion: descripcion.trim(),
-        img: base64Opt,
+        img: imagenesPrendas[0], // Imagen principal para compatibilidad con vistas existentes
+        imagenes: imagenesPrendas, // Arreglo completo con múltiples vistas
         origen: 'Taller Nuevo Chimbote',
         createdAt: serverTimestamp()
       });
@@ -245,14 +254,13 @@ export default function AdminDashboardView() {
       mostrarToast("✦ Prenda publicada exitosamente en el catálogo.");
       setNombre('');
       setPrecio('');
-      setCostoUnitario('');
+      setCargandoUnitario('');
       setStock('12');
       setDescripcion('');
-      setImagenArchivo(null);
-      setPreviewUrl('');
+      setImagenesPrendas([]);
     } catch (err) {
       console.error(err);
-      alert("Error al procesar la imagen y guardar en Firestore.");
+      alert("Error al guardar la prenda en Firestore.");
     } finally {
       setGuardando(false);
     }
@@ -449,7 +457,7 @@ export default function AdminDashboardView() {
         </div>
       </div>
 
-      {/* PESTAÑA 1: INVENTARIO */}
+      {/* PESTAÑA 1: INVENTARIO (Soporta múltiples imágenes y alta capacidad) */}
       {tabActiva === 'inventario' && (
         <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-10">
           <form onSubmit={handleGuardarProducto} className="lg:col-span-5 bg-white p-7 rounded-3xl border border-[#FCE4EC] shadow-xs space-y-4">
@@ -528,29 +536,46 @@ export default function AdminDashboardView() {
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider mb-1">Fotografía de la Prenda *</label>
+              <label className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider mb-1">Fotografías de la Prenda (Soporta múltiples) *</label>
               <label className="w-full border-2 border-dashed border-[#F8D7E0] hover:border-[#701A3B] rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-[#FDF5F7]/40 transition">
                 <UploadCloud className="w-6 h-6 text-[#701A3B] mb-1" />
-                <span className="text-xs text-stone-700 font-medium">Subir foto desde PC o Celular</span>
-                <span className="text-[10px] text-stone-400">Compresión automática en Canvas (sin Storage)</span>
-                <input type="file" accept="image/*" onChange={handleSeleccionarImagen} className="hidden" />
+                <span className="text-xs text-stone-700 font-medium">Subir fotos desde PC o Celular (Múltiples)</span>
+                <span className="text-[10px] text-stone-400">Optimización automática en Canvas (sin Storage)</span>
+                <input type="file" multiple accept="image/*" onChange={handleSeleccionarImagenesMultiples} className="hidden" />
               </label>
 
-              {previewUrl && (
-                <div className="mt-3 relative w-24 h-24 rounded-xl overflow-hidden border border-[#F8D7E0]">
-                  <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
+              {cargandoImgs && (
+                <p className="text-[11px] text-[#701A3B] font-bold mt-2 animate-pulse flex items-center gap-1">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Optimizando imágenes...
+                </p>
+              )}
+
+              {imagenesPrendas.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {imagenesPrendas.map((imgSrc, idx) => (
+                    <div key={idx} className="relative w-16 h-16 rounded-xl overflow-hidden border border-[#F8D7E0] group">
+                      <img src={imgSrc} alt="Preview" className="w-full h-full object-cover" />
+                      <button 
+                        type="button"
+                        onClick={() => setImagenesPrendas(imagenesPrendas.filter((_, i) => i !== idx))}
+                        className="absolute top-0 right-0 bg-rose-600 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-bl hover:bg-rose-700 cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
 
             <button
               type="submit"
-              disabled={guardando}
+              disabled={guardando || cargandoImgs}
               className="w-full bg-[#701A3B] hover:bg-[#56132D] text-white py-3.5 rounded-xl font-bold uppercase tracking-widest text-xs transition duration-300 flex items-center justify-center gap-2 cursor-pointer shadow-xs disabled:opacity-50"
             >
               {guardando ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" /> Procesando Imagen y Guardando...
+                  <Loader2 className="w-4 h-4 animate-spin" /> Guardando en Firestore...
                 </>
               ) : (
                 '✦ Publicar Prenda en Catálogo'
@@ -568,7 +593,9 @@ export default function AdminDashboardView() {
                     <img src={p.img} alt={p.nombre} className="w-12 h-14 rounded-lg object-cover border border-stone-200" />
                     <div>
                       <p className="font-bold text-xs text-stone-900">{p.nombre}</p>
-                      <p className="text-[10px] text-stone-400">{p.categoria} • Stock: {p.stock} • Tallas: {p.tallas?.join(', ')}</p>
+                      <p className="text-[10px] text-stone-400">
+                        {p.categoria} • Stock: {p.stock} • Fotos: {(p.imagenes || [p.img]).length} • Tallas: {p.tallas?.join(', ')}
+                      </p>
                       <p className="text-xs font-semibold text-[#701A3B]">S/. {parseFloat(p.precio || 0).toFixed(2)}</p>
                     </div>
                   </div>

@@ -59,7 +59,7 @@ export default function AuthView() {
       const res = await iniciarSesion(emailTrim, password);
       setCargando(false);
       if (res.success) {
-        navegarA('home');
+        navegarA(res.role === 'admin' ? 'admin' : 'home');
       } else {
         setErrorMsg(res.error || 'Credenciales no reconocidas.');
       }
@@ -89,7 +89,7 @@ export default function AuthView() {
           </p>
         </div>
 
-        {/* Alerta de Error Elegante */}
+        {/* Alerta de Error Elegante (Muestra errores limpios sin el código crudo de Firebase Auth) */}
         {errorMsg && (
           <div className="bg-rose-50 border border-rose-200 text-rose-800 p-3.5 rounded-2xl text-xs flex items-start gap-2.5 animate-fadeIn">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
@@ -190,7 +190,7 @@ export default function AuthView() {
         {/* Nota de Despacho */}
         <div className="flex items-center justify-center gap-1.5 text-[10px] text-stone-400 font-light text-center">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-          <span>Taller matriz en Nuevo Chimbote • Envíos seguros vía Shalom</span>
+          <span>Taller matriz en Nuevo Chimbote • Envíos seguros vía Shalom</span>  
         </div>
 
       </div>

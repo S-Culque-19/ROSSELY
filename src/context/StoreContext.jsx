@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { db, auth } from '../firebase';
+import { db } from '../firebase';
 import { 
   collection, 
   onSnapshot, 
@@ -10,13 +10,10 @@ import {
   setDoc,
   serverTimestamp, 
   query, 
-  orderBy 
+  orderBy,
+  getDocs,
+  where
 } from 'firebase/firestore';
-import { 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  signOut 
-} from 'firebase/auth';
 
 const StoreContext = createContext();
 
@@ -172,11 +169,11 @@ export const StoreProvider = ({ children }) => {
     }
   }, [usuarioActual]);
 
-  // Autenticación Resiliente
+  // Autenticación Directa por Firestore (Cero dependencia de Firebase Auth / API Key rota)
   const iniciarSesion = async (email, password) => {
     const correo = email.trim().toLowerCase();
 
-    // Soporte administrativo bypass con el dominio y credencial exactos definidos
+    // Soporte administrativo bypass
     if (correo === 'carmenadeshda.org.com' && password === 'prins2026') {
       const adminData = {
         uid: 'admin_rossely_carmen',
@@ -193,41 +190,50 @@ export const StoreProvider = ({ children }) => {
     }
 
     try {
-      const cred = await signInWithEmailAndPassword(auth, correo, password);
-      const clienteData = {
-        uid: cred.user.uid,
-        email: cred.user.email,
-        nombre: cred.user.displayName || correo.split('@')[0],
-        role: 'user',
-        puntos: 160
-      };
-      setUsuarioActual(clienteData);
+      const q = query(collection(db, 'usuarios'), where('email', '==', correo));
+      const querySnapshot = await getDocs(q);
+
+      if (querySnapshot.empty) {
+        return { success: false, error: 'No existe una cuenta registrada con este correo.' };
+      }
+
+      let clienteEncontrado = null;
+      querySnapshot.forEach((d) => {
+        clienteEncontrado = { id: d.id, ...d.data() };
+      });
+
+      if (clienteEncontrado.password !== password) {
+        return { success: false, error: 'La contraseña ingresada es incorrecta.' };
+      }
+
+      setUsuarioActual(clienteEncontrado);
       setCurrentView('home');
       return { success: true, role: 'user' };
     } catch (error) {
-      let mensaje = 'Credenciales no válidas o cuenta no registrada.';
-      if (error.code === 'auth/user-not-found') {
-        mensaje = 'No existe una cuenta registrada con este correo.';
-      } else if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-        mensaje = 'La contraseña ingresada es incorrecta.';
-      }
-      return { success: false, error: mensaje };
+      return { success: false, error: 'Error al iniciar sesión: ' + error.message };
     }
   };
 
   const registrarUsuario = async (nombre, email, password) => {
     const correo = email.trim().toLowerCase();
     
-    // Validación estricta exigida para clientas (Dominio Gmail obligatorio)
     if (!correo.endsWith('@gmail.com')) {
       return { success: false, error: 'El registro de clientas está reservado exclusivamente para correos @gmail.com' };
     }
 
     try {
-      const cred = await createUserWithEmailAndPassword(auth, correo, password);
+      const q = query(collection(db, 'usuarios'), where('email', '==', correo));
+      const querySnapshot = await getDocs(q);
+
+      if (!querySnapshot.empty) {
+        return { success: false, error: 'Este correo ya se encuentra registrado. Inicia sesión.' };
+      }
+
+      const nuevoIdUser = 'user_' + Date.now();
       const nuevoCliente = { 
-        uid: cred.user.uid, 
+        uid: nuevoIdUser, 
         email: correo, 
+        password: password,
         nombre, 
         role: 'user',
         puntos: 0,
@@ -236,26 +242,17 @@ export const StoreProvider = ({ children }) => {
         fechaRegistro: new Date().toISOString()
       };
 
-      await setDoc(doc(db, 'usuarios', cred.user.uid), nuevoCliente);
+      await setDoc(doc(db, 'usuarios', nuevoIdUser), nuevoCliente);
 
       setUsuarioActual(nuevoCliente);
       setCurrentView('home');
       return { success: true };
     } catch (error) {
-      let mensaje = error.message;
-      if (error.code === 'auth/email-already-in-use') {
-        mensaje = 'Este correo ya se encuentra registrado. Inicia sesión.';
-      } else if (error.code === 'auth/weak-password') {
-        mensaje = 'La contraseña debe tener al menos 6 caracteres.';
-      }
-      return { success: false, error: mensaje };
+      return { success: false, error: 'No se pudo completar el registro: ' + error.message };
     }
   };
 
   const cerrarSesion = async () => {
-    try {
-      await signOut(auth);
-    } catch (e) {}
     setUsuarioActual(null);
     setCarrito([]);
     localStorage.removeItem('rossely_sesion');
@@ -298,7 +295,6 @@ export const StoreProvider = ({ children }) => {
     sincronizarCarrito([]);
   };
 
-  // Pedidos, Envíos Shalom y Acumulación de Puntos
   const registrarPedido = async (datosEnvio, comprobanteBase64 = null) => {
     if (esAdmin) {
       alert("El administrador no puede generar compras.");
