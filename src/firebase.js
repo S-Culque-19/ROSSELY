@@ -4,7 +4,7 @@ import { getAuth } from "firebase/auth";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBZKaEPbw3D-FmKLxiWLHiYfXsyw6fmW8s",
+  apiKey: "AIzaSyBZKaEPbw3D-FmKLxiWLHiYfXsyw6fmW8s",     
   authDomain: "rossely-8af03.firebaseapp.com",
   projectId: "rossely-8af03",
   storageBucket: "rossely-8af03.firebasestorage.app",
