@@ -6,6 +6,7 @@ import SupportChatbot from './components/SupportChatbot';
 
 import HomeView from './views/HomeView';
 import CatalogView from './views/CatalogView';
+import CommunityView from './views/CommunityView';
 import ProductDetailView from './views/ProductDetailView';
 import CartView from './views/CartView';
 import CheckoutView from './views/CheckoutView';
@@ -20,6 +21,7 @@ function MainContent({ busqueda }) {
     <main className="w-full flex-grow">
       {currentView === 'home' && <HomeView />}
       {currentView === 'catalog' && <CatalogView busqueda={busqueda} />}
+      {currentView === 'community' && <CommunityView />}
       {currentView === 'detail' && <ProductDetailView />}
       {currentView === 'cart' && <CartView />}
       {currentView === 'checkout' && <CheckoutView />}

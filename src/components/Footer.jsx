@@ -1,6 +1,9 @@
 import React from 'react';
+import { useStore } from '../context/StoreContext';
 
 export default function Footer() {
+  const { navegarA } = useStore();
+
   return (
     <footer className="w-full bg-[#FAF5F6] text-stone-700 pt-16 pb-12 mt-24 border-t border-[#F8D7E0] font-sans">
       <div className="w-full px-6 sm:px-10 md:px-16">
@@ -51,15 +54,30 @@ export default function Footer() {
             </div>
           </div>
 
-          {/* Columna 2: Atención al Cliente */}
+          {/* Columna 2: Comunidad & Atención */}
           <div className="space-y-4">
             <h4 className="text-xs font-bold uppercase tracking-widest text-stone-900">
-              Atención al Cliente
+              Comunidad & Soporte
             </h4>
             <ul className="space-y-2.5 text-xs text-stone-600 font-light">
+              <li>
+                <button 
+                  onClick={() => navegarA('community')} 
+                  className="hover:text-[#701A3B] font-semibold text-[#701A3B] transition cursor-pointer text-left flex items-center gap-1"
+                >
+                  ✦ Experiencias de Seda (Comunidad)
+                </button>
+              </li>
+              <li>
+                <button 
+                  onClick={() => navegarA('catalog')} 
+                  className="hover:text-[#701A3B] transition cursor-pointer text-left"
+                >
+                  • Colección Completa
+                </button>
+              </li>
               <li><a href="#guia-tallas" className="hover:text-[#701A3B] transition">• Guía de Tallas ROSSELY</a></li>
               <li><a href="#envios" className="hover:text-[#701A3B] transition">• Envíos Lima y Provincias</a></li>
-              <li><a href="#preguntas" className="hover:text-[#701A3B] transition">• Preguntas Frecuentes</a></li>
               <li><a href="#cambios" className="hover:text-[#701A3B] transition">• Políticas de Cambio</a></li>
             </ul>
           </div>
