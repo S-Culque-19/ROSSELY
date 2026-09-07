@@ -1,7 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../context/StoreContext';
 import { db } from '../firebase';
-import { collection, addDoc, doc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { 
+  collection, 
+  addDoc, 
+  doc, 
+  setDoc,
+  updateDoc, 
+  deleteDoc, 
+  onSnapshot, 
+  query, 
+  orderBy, 
+  serverTimestamp 
+} from 'firebase/firestore';
 import * as XLSX from 'xlsx';
 import { 
   Package, 
@@ -14,7 +25,15 @@ import {
   Trash2, 
   Clock, 
   Truck, 
-  MapPin 
+  MapPin,
+  MessageSquare,
+  Send,
+  User,
+  CheckCheck,
+  Moon,
+  Gift,
+  Save,
+  Sparkles
 } from 'lucide-react';
 
 // Compresión Canvas integrada localmente (Cero dependencias de Storage)
@@ -55,7 +74,7 @@ const optimizarImagenCanvas = (file, maxWidth = 1100, quality = 0.75) => {
 
 export default function AdminDashboardView() {
   const { productos, pedidos, actualizarEstadoPedido, eliminarProducto } = useStore();
-  const [tabActiva, setTabActiva] = useState('inventario'); // 'inventario' | 'pedidos' | 'balance'
+  const [tabActiva, setTabActiva] = useState('inventario'); // 'inventario' | 'pedidos' | 'balance' | 'mensajes' | 'config'
 
   // Estados del Formulario de Prendas
   const [nombre, setNombre] = useState('');
@@ -73,9 +92,120 @@ export default function AdminDashboardView() {
   // Selector temporal para Balance Contable
   const [diasFiltro, setDiasFiltro] = useState(30);
 
+  // Estados para el Centro de Mensajería
+  const [chats, setChats] = useState([]);
+  const [chatSeleccionado, setChatSeleccionado] = useState(null);
+  const [mensajesChat, setMensajesChat] = useState([]);
+  const [respuestaAdmin, setRespuestaAdmin] = useState('');
+  const [enviandoRespuesta, setEnviandoRespuesta] = useState(false);
+  const scrollChatRef = useRef(null);
+
+  // Estados para la Configuración de Experiencia Nocturna
+  const [configNocturna, setConfigNocturna] = useState({
+    activo: true,
+    mensaje: "El confort de la seda te espera esta noche...",
+    textoBoton: "+ BENEFICIO",
+    codigoDescuento: "SEDA-NOCHE",
+    horaInicio: 20,
+    horaFin: 6
+  });
+  const [guardandoConfig, setGuardandoConfig] = useState(false);
+
   const mostrarToast = (msg) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(''), 3000);
+  };
+
+  // 1. Cargar Configuración Nocturna desde Firestore
+  useEffect(() => {
+    const docRef = doc(db, 'configuracion', 'experiencia_nocturna');
+    const unsub = onSnapshot(docRef, (snap) => {
+      if (snap.exists()) {
+        setConfigNocturna(prev => ({ ...prev, ...snap.data() }));
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  const handleGuardarConfigNocturna = async (e) => {
+    e.preventDefault();
+    setGuardandoConfig(true);
+    try {
+      await setDoc(doc(db, 'configuracion', 'experiencia_nocturna'), {
+        ...configNocturna,
+        horaInicio: parseInt(configNocturna.horaInicio, 10) || 20,
+        horaFin: parseInt(configNocturna.horaFin, 10) || 6,
+        actualizadoEn: serverTimestamp()
+      }, { merge: true });
+      mostrarToast("✦ Configuración de Beneficio Nocturno guardada.");
+    } catch (err) {
+      console.error(err);
+      alert("Error al actualizar la configuración nocturna.");
+    } finally {
+      setGuardandoConfig(false);
+    }
+  };
+
+  // 2. Suscripción a lista de chats de soporte en vivo
+  useEffect(() => {
+    const q = query(collection(db, 'chats'), orderBy('ultimaFecha', 'desc'));
+    const unsub = onSnapshot(q, (snap) => {
+      const lista = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setChats(lista);
+      if (!chatSeleccionado && lista.length > 0) {
+        setChatSeleccionado(lista[0]);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // 3. Suscripción a mensajes del chat activo seleccionado
+  useEffect(() => {
+    if (!chatSeleccionado?.id) return;
+
+    const q = query(
+      collection(db, 'chats', chatSeleccionado.id, 'mensajes'),
+      orderBy('timestamp', 'asc')
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      setMensajesChat(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      scrollChatRef.current?.scrollIntoView({ behavior: 'smooth' });
+    });
+
+    updateDoc(doc(db, 'chats', chatSeleccionado.id), {
+      noLeidoPorAdmin: false
+    }).catch(() => {});
+
+    return () => unsub();
+  }, [chatSeleccionado?.id]);
+
+  const handleEnviarRespuestaAdmin = async (e) => {
+    e.preventDefault();
+    if (!respuestaAdmin.trim() || !chatSeleccionado?.id) return;
+
+    const texto = respuestaAdmin.trim();
+    setRespuestaAdmin('');
+    setEnviandoRespuesta(true);
+
+    try {
+      await addDoc(collection(db, 'chats', chatSeleccionado.id, 'mensajes'), {
+        remitente: 'admin',
+        texto,
+        timestamp: serverTimestamp()
+      });
+
+      await updateDoc(doc(db, 'chats', chatSeleccionado.id), {
+        ultimoMensaje: `Asesora: ${texto}`,
+        ultimaFecha: serverTimestamp(),
+        noLeidoPorAdmin: false,
+        estado: 'respondido'
+      });
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setEnviandoRespuesta(false);
+    }
   };
 
   const handleSeleccionarImagen = (e) => {
@@ -103,7 +233,7 @@ export default function AdminDashboardView() {
         nombre: nombre.trim(),
         precio: parseFloat(precio),
         costoUnitario: parseFloat(costoUnitario || (parseFloat(precio) * 0.4)),
-        stock: parseInt(stock) || 0,
+        stock: parseInt(stock, 10) || 0,
         categoria,
         tallas: tallas.split(',').map(t => t.trim().toUpperCase()),
         descripcion: descripcion.trim(),
@@ -205,8 +335,10 @@ export default function AdminDashboardView() {
     XLSX.writeFile(libro, `Balance_ROSSELY_${diasFiltro}Dias_${fechaHoy}.xlsx`);
   };
 
+  const chatsNoLeidosCount = chats.filter(c => c.noLeidoPorAdmin).length;
+
   return (
-    <div className="w-full min-h-screen py-8 px-6 sm:px-10 md:px-16 font-sans space-y-10">
+    <div className="w-full min-h-screen py-8 px-6 sm:px-10 md:px-16 font-sans space-y-8">
       
       {/* Toast Animado */}
       {toastMsg && (
@@ -215,6 +347,19 @@ export default function AdminDashboardView() {
           <span>{toastMsg}</span>
         </div>
       )}
+
+      {/* Sello de Marca y Packaging Oficial ROSSELY */}
+      <div className="bg-[#FFF5F7] border border-[#F8D7E0] p-3.5 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs text-[#701A3B]">
+        <div className="flex items-center gap-2">
+          <Gift className="w-4 h-4 text-[#701A3B] shrink-0" />
+          <span className="font-serif italic font-semibold">
+            Protocolo de Taller: Todos los productos son envueltos en papel seda y con su respectiva caja ROSSELY.
+          </span>
+        </div>
+        <span className="text-[10px] bg-white border border-[#F8D7E0] px-2.5 py-1 rounded-full font-bold uppercase tracking-widest text-[#A24869]">
+          Nuevo Chimbote ➔ Shalom Nacional
+        </span>
+      </div>
 
       {/* Cabecera del Panel */}
       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 border-b border-[#FCE4EC] pb-6">
@@ -232,8 +377,8 @@ export default function AdminDashboardView() {
           </h1>
         </div>
 
-        {/* Pestañas del Panel */}
-        <div className="flex gap-2 p-1.5 bg-[#FDF5F7] border border-[#F8D7E0] rounded-2xl">
+        {/* 5 Pestañas del Panel */}
+        <div className="flex flex-wrap gap-2 p-1.5 bg-[#FDF5F7] border border-[#F8D7E0] rounded-2xl">
           <button
             onClick={() => setTabActiva('inventario')}
             className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer flex items-center gap-1.5 ${
@@ -242,6 +387,7 @@ export default function AdminDashboardView() {
           >
             <Package className="w-3.5 h-3.5" /> Inventario ({productos.length})
           </button>
+          
           <button
             onClick={() => setTabActiva('pedidos')}
             className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer flex items-center gap-1.5 ${
@@ -250,6 +396,7 @@ export default function AdminDashboardView() {
           >
             <ShoppingBag className="w-3.5 h-3.5" /> Envíos Shalom ({pedidos.length})
           </button>
+
           <button
             onClick={() => setTabActiva('balance')}
             className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer flex items-center gap-1.5 ${
@@ -258,13 +405,36 @@ export default function AdminDashboardView() {
           >
             <TrendingUp className="w-3.5 h-3.5" /> Balance Contable
           </button>
+
+          <button
+            onClick={() => setTabActiva('mensajes')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer flex items-center gap-1.5 relative ${
+              tabActiva === 'mensajes' ? 'bg-[#701A3B] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
+            }`}
+          >
+            <MessageSquare className="w-3.5 h-3.5" /> 
+            <span>Asesoría en Vivo</span>
+            {chatsNoLeidosCount > 0 && (
+              <span className="ml-1 bg-amber-400 text-stone-900 text-[10px] font-black px-1.5 py-0.2 rounded-full">
+                {chatsNoLeidosCount}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setTabActiva('config')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer flex items-center gap-1.5 ${
+              tabActiva === 'config' ? 'bg-[#701A3B] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
+            }`}
+          >
+            <Moon className="w-3.5 h-3.5 text-[#A24869]" /> Beneficio Nocturno
+          </button>
         </div>
       </div>
 
       {/* PESTAÑA 1: INVENTARIO */}
       {tabActiva === 'inventario' && (
         <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-10">
-          {/* Formulario */}
           <form onSubmit={handleGuardarProducto} className="lg:col-span-5 bg-white p-7 rounded-3xl border border-[#FCE4EC] shadow-xs space-y-4">
             <h3 className="font-serif text-lg font-bold text-stone-900">Agregar Nueva Prenda de Seda</h3>
 
@@ -340,7 +510,6 @@ export default function AdminDashboardView() {
               </div>
             </div>
 
-            {/* Input Fotografía Local */}
             <div>
               <label className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider mb-1">Fotografía de la Prenda *</label>
               <label className="w-full border-2 border-dashed border-[#F8D7E0] hover:border-[#701A3B] rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-[#FDF5F7]/40 transition">
@@ -372,7 +541,6 @@ export default function AdminDashboardView() {
             </button>
           </form>
 
-          {/* Listado en Vivo */}
           <div className="lg:col-span-7 bg-white p-7 rounded-3xl border border-[#FCE4EC] shadow-xs space-y-4">
             <h3 className="font-serif text-lg font-bold text-stone-900">Prendas en el Catálogo ({productos.length})</h3>
             
@@ -476,8 +644,6 @@ export default function AdminDashboardView() {
       {/* PESTAÑA 3: BALANCE CONTABLE & EXCEL */}
       {tabActiva === 'balance' && (
         <div className="space-y-8">
-          
-          {/* Selector y Exportador */}
           <div className="bg-white p-6 rounded-3xl border border-[#FCE4EC] shadow-xs flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <Clock className="w-5 h-5 text-[#701A3B]" />
@@ -516,7 +682,6 @@ export default function AdminDashboardView() {
             </button>
           </div>
 
-          {/* Tarjetas KPI */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
             <div className="bg-white p-5 rounded-2xl border border-[#FCE4EC] shadow-xs space-y-1">
               <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Ingresos Brutos</span>
@@ -550,7 +715,284 @@ export default function AdminDashboardView() {
               <span className="text-[10px] text-stone-400 font-medium">Por compra</span>
             </div>
           </div>
+        </div>
+      )}
 
+      {/* PESTAÑA 4: CENTRO DE ASESORÍA Y MENSAJERÍA EN VIVO (MESSENGER STYLE) */}
+      {tabActiva === 'mensajes' && (
+        <div className="bg-white rounded-3xl border border-[#FCE4EC] shadow-sm overflow-hidden h-[620px] grid grid-cols-1 md:grid-cols-12">
+          
+          {/* Columna Izquierda: Bandeja de Chats */}
+          <div className="md:col-span-4 border-r border-[#FCE4EC] flex flex-col h-full bg-[#FFFBFB]">
+            <div className="p-4 border-b border-[#FCE4EC] bg-white flex items-center justify-between">
+              <div>
+                <h3 className="font-serif text-sm font-bold text-stone-900">Bandeja de Asesoría</h3>
+                <p className="text-[10px] text-stone-400">Consultas de clientas en vivo</p>
+              </div>
+              <span className="bg-[#FDF5F7] text-[#701A3B] border border-[#F8D7E0] text-[10px] font-bold px-2 py-0.5 rounded-full">
+                {chats.length} chats
+              </span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto divide-y divide-stone-100">
+              {chats.length === 0 ? (
+                <div className="p-8 text-center text-xs text-stone-400">
+                  No hay conversaciones activas en este momento.
+                </div>
+              ) : (
+                chats.map((c) => {
+                  const seleccionado = chatSeleccionado?.id === c.id;
+                  return (
+                    <div
+                      key={c.id}
+                      onClick={() => setChatSeleccionado(c)}
+                      className={`p-4 cursor-pointer transition flex items-start gap-3 ${
+                        seleccionado 
+                          ? 'bg-[#FDF5F7] border-l-4 border-[#701A3B]' 
+                          : 'hover:bg-white'
+                      }`}
+                    >
+                      <div className="w-10 h-10 rounded-full bg-[#FCE4EC] border border-[#F8D7E0] flex items-center justify-center text-[#701A3B] shrink-0 font-serif font-bold text-sm">
+                        {c.clienteNombre ? c.clienteNombre.charAt(0).toUpperCase() : 'C'}
+                      </div>
+                      
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-0.5">
+                          <p className="text-xs font-bold text-stone-900 truncate">
+                            {c.clienteNombre}
+                          </p>
+                          {c.noLeidoPorAdmin && (
+                            <span className="w-2 h-2 rounded-full bg-[#701A3B]" />
+                          )}
+                        </div>
+                        <p className="text-[11px] text-stone-500 truncate font-light">
+                          {c.ultimoMensaje || 'Nueva solicitud de asesoría'}
+                        </p>
+                        <span className="text-[9px] text-stone-400 block mt-1">
+                          {c.clienteEmail}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Columna Derecha: Ventana de Conversación Tipo Messenger */}
+          <div className="md:col-span-8 flex flex-col h-full bg-[#FCFBFB]">
+            {chatSeleccionado ? (
+              <>
+                <div className="p-4 bg-white border-b border-[#FCE4EC] flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-[#701A3B] text-white flex items-center justify-center font-bold text-xs font-serif">
+                      {chatSeleccionado.clienteNombre?.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-stone-900">
+                        {chatSeleccionado.clienteNombre}
+                      </h4>
+                      <p className="text-[10px] text-[#A24869]">
+                        {chatSeleccionado.clienteEmail} • Nuevo Chimbote
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full font-semibold">
+                    En Atención
+                  </span>
+                </div>
+
+                <div className="flex-1 p-5 overflow-y-auto space-y-3">
+                  {mensajesChat.length === 0 ? (
+                    <div className="text-center py-10 text-xs text-stone-400">
+                      Iniciando canal de comunicación...
+                    </div>
+                  ) : (
+                    mensajesChat.map((m) => {
+                      const esAdminMsg = m.remitente === 'admin';
+                      const esSistema = m.remitente === 'sistema';
+
+                      if (esSistema) {
+                        return (
+                          <div key={m.id} className="text-center my-2">
+                            <span className="text-[10px] bg-stone-100 text-stone-500 px-3 py-1 rounded-full">
+                              {m.texto}
+                            </span>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div
+                          key={m.id}
+                          className={`flex flex-col ${esAdminMsg ? 'items-end' : 'items-start'}`}
+                        >
+                          <span className="text-[9px] text-stone-400 px-1 mb-0.5">
+                            {esAdminMsg ? 'Administradora ROSSELY' : chatSeleccionado.clienteNombre}
+                          </span>
+                          <div
+                            className={`max-w-[75%] p-3.5 rounded-2xl text-xs leading-relaxed ${
+                              esAdminMsg
+                                ? 'bg-[#701A3B] text-white rounded-br-xs shadow-xs'
+                                : 'bg-white text-stone-800 border border-[#F8D7E0] rounded-bl-xs shadow-xs'
+                            }`}
+                          >
+                            {m.texto}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                  <div ref={scrollChatRef} />
+                </div>
+
+                <form onSubmit={handleEnviarRespuestaAdmin} className="p-3.5 bg-white border-t border-[#FCE4EC] flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={respuestaAdmin}
+                    onChange={(e) => setRespuestaAdmin(e.target.value)}
+                    placeholder="Escribe una respuesta a la clienta..."
+                    className="flex-1 bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none focus:border-[#701A3B] text-stone-800"
+                  />
+                  <button
+                    type="submit"
+                    disabled={enviandoRespuesta || !respuestaAdmin.trim()}
+                    className="bg-[#701A3B] hover:bg-[#56132D] text-white px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Responder</span>
+                  </button>
+                </form>
+              </>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-stone-400 text-xs space-y-2">
+                <MessageSquare className="w-10 h-10 text-[#F8D7E0]" />
+                <p>Selecciona una conversación de la lista para responder.</p>
+              </div>
+            )}
+          </div>
+
+        </div>
+      )}
+
+      {/* PESTAÑA 5: GESTIÓN DE EXPERIENCIA NOCTURNA Y BENEFICIOS */}
+      {tabActiva === 'config' && (
+        <div className="bg-white p-8 rounded-3xl border border-[#FCE4EC] shadow-xs max-w-2xl space-y-6">
+          <div className="border-b border-stone-100 pb-4">
+            <div className="flex items-center gap-2">
+              <Moon className="w-5 h-5 text-[#701A3B]" />
+              <h3 className="font-serif text-lg font-bold text-stone-900">Control del Banner Nocturno</h3>
+            </div>
+            <p className="text-xs text-stone-500 font-light mt-1">
+              Personaliza el mensaje y cupón que ven exclusivamente las clientas que han iniciado sesión.
+            </p>
+          </div>
+
+          <form onSubmit={handleGuardarConfigNocturna} className="space-y-4 text-xs">
+            {/* Toggle Activo */}
+            <div className="flex items-center justify-between p-4 bg-[#FDF5F7] border border-[#F8D7E0] rounded-2xl">
+              <div>
+                <p className="font-bold text-stone-800">Banner Nocturno Activo</p>
+                <p className="text-[10px] text-stone-500 font-light">
+                  Si se desactiva, no se mostrará a ninguna clienta en la tienda.
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={configNocturna.activo}
+                  onChange={(e) => setConfigNocturna({ ...configNocturna, activo: e.target.checked })}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-stone-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#701A3B]"></div>
+              </label>
+            </div>
+
+            {/* Mensaje */}
+            <div>
+              <label className="block text-[11px] font-bold text-stone-700 uppercase tracking-wider mb-1">
+                Mensaje de Noche *
+              </label>
+              <input
+                type="text"
+                required
+                value={configNocturna.mensaje}
+                onChange={(e) => setConfigNocturna({ ...configNocturna, mensaje: e.target.value })}
+                placeholder="Ej. El confort de la seda te espera esta noche..."
+                className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none focus:border-[#701A3B]"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[11px] font-bold text-stone-700 uppercase tracking-wider mb-1">
+                  Texto del Botón *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={configNocturna.textoBoton}
+                  onChange={(e) => setConfigNocturna({ ...configNocturna, textoBoton: e.target.value })}
+                  placeholder="Ej. + BENEFICIO"
+                  className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none focus:border-[#701A3B]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-stone-700 uppercase tracking-wider mb-1">
+                  Código de Cupón a Copiar *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={configNocturna.codigoDescuento}
+                  onChange={(e) => setConfigNocturna({ ...configNocturna, codigoDescuento: e.target.value.toUpperCase() })}
+                  placeholder="Ej. SEDA-NOCHE"
+                  className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs font-mono outline-none focus:border-[#701A3B]"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[11px] font-bold text-stone-700 uppercase tracking-wider mb-1">
+                  Hora Inicio (0-23 hrs)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="23"
+                  value={configNocturna.horaInicio}
+                  onChange={(e) => setConfigNocturna({ ...configNocturna, horaInicio: e.target.value })}
+                  className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-4 py-2 text-xs outline-none focus:border-[#701A3B]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-stone-700 uppercase tracking-wider mb-1">
+                  Hora Fin (0-23 hrs)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="23"
+                  value={configNocturna.horaFin}
+                  onChange={(e) => setConfigNocturna({ ...configNocturna, horaFin: e.target.value })}
+                  className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-4 py-2 text-xs outline-none focus:border-[#701A3B]"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={guardandoConfig}
+              className="w-full bg-[#701A3B] hover:bg-[#56132D] text-white py-3.5 rounded-xl font-bold uppercase tracking-widest text-xs transition duration-300 flex items-center justify-center gap-2 cursor-pointer shadow-xs disabled:opacity-50 mt-2"
+            >
+              {guardandoConfig ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              <span>Guardar Configuración en Firestore</span>
+            </button>
+          </form>
         </div>
       )}
 
