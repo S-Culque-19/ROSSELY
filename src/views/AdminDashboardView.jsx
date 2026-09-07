@@ -2,30 +2,66 @@ import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
 import { db } from '../firebase';
 import { collection, addDoc, doc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
-import { compressAndConvertToBase64 } from '../services/imageOptimizer';
 import * as XLSX from 'xlsx';
 import { 
   Package, 
   ShoppingBag, 
-  DollarSign, 
   TrendingUp, 
   FileSpreadsheet, 
   UploadCloud, 
   Loader2, 
   CheckCircle, 
   Trash2, 
-  Clock 
+  Clock, 
+  Truck, 
+  MapPin 
 } from 'lucide-react';
 
+// Compresión Canvas integrada localmente (Cero dependencias de Storage)
+const optimizarImagenCanvas = (file, maxWidth = 1100, quality = 0.75) => {
+  return new Promise((resolve, reject) => {
+    if (!file) return reject(new Error("Archivo inválido"));
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (e) => {
+      const img = new Image();
+      img.src = e.target.result;
+      img.onload = () => {
+        let w = img.width;
+        let h = img.height;
+        if (w > maxWidth) {
+          h = Math.round((h * maxWidth) / w);
+          w = maxWidth;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, w, h);
+
+        let dataUrl = canvas.toDataURL('image/webp', quality);
+        if (dataUrl.indexOf('data:image/webp') !== 0) {
+          dataUrl = canvas.toDataURL('image/jpeg', quality);
+        }
+        resolve(dataUrl);
+      };
+      img.onerror = reject;
+    };
+    reader.onerror = reject;
+  });
+};
+
 export default function AdminDashboardView() {
-  const { productos, pedidos } = useStore();
+  const { productos, pedidos, actualizarEstadoPedido, eliminarProducto } = useStore();
   const [tabActiva, setTabActiva] = useState('inventario'); // 'inventario' | 'pedidos' | 'balance'
-  
-  // Estado del formulario de productos
+
+  // Estados del Formulario de Prendas
   const [nombre, setNombre] = useState('');
   const [precio, setPrecio] = useState('');
   const [costoUnitario, setCostoUnitario] = useState('');
-  const [stock, setStock] = useState('10');
+  const [stock, setStock] = useState('12');
   const [categoria, setCategoria] = useState('Pijamas');
   const [tallas, setTallas] = useState('S, M, L');
   const [descripcion, setDescripcion] = useState('');
@@ -34,7 +70,7 @@ export default function AdminDashboardView() {
   const [guardando, setGuardando] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
 
-  // Filtro de días para el Balance Contable
+  // Selector temporal para Balance Contable
   const [diasFiltro, setDiasFiltro] = useState(30);
 
   const mostrarToast = (msg) => {
@@ -43,173 +79,160 @@ export default function AdminDashboardView() {
   };
 
   const handleSeleccionarImagen = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setImagenArchivo(file);
-      setPreviewUrl(URL.createObjectURL(file));
+    const f = e.target.files[0];
+    if (f) {
+      setImagenArchivo(f);
+      setPreviewUrl(URL.createObjectURL(f));
     }
   };
 
   const handleGuardarProducto = async (e) => {
     e.preventDefault();
     if (!nombre.trim() || !precio || !imagenArchivo) {
-      alert("Por favor completa el nombre, precio y selecciona una fotografía.");
+      alert("Por favor completa el nombre, precio y selecciona la foto de la prenda.");
       return;
     }
 
     setGuardando(true);
     try {
-      // 1. Compresión instantánea en Canvas
-      const base64Optimizado = await compressAndConvertToBase64(imagenArchivo, 1100, 0.75);
+      // 1. Compresión Canvas Base64 sin Storage
+      const base64Opt = await optimizarImagenCanvas(imagenArchivo, 1100, 0.75);
 
-      // 2. Guardar directo en Firestore (cero dependencia de Storage)
+      // 2. Inserción directa en Cloud Firestore
       await addDoc(collection(db, 'productos'), {
         nombre: nombre.trim(),
         precio: parseFloat(precio),
-        costoUnitario: parseFloat(costoUnitario || (parseFloat(precio) * 0.4)), // Margen base si no se especifica
+        costoUnitario: parseFloat(costoUnitario || (parseFloat(precio) * 0.4)),
         stock: parseInt(stock) || 0,
         categoria,
         tallas: tallas.split(',').map(t => t.trim().toUpperCase()),
         descripcion: descripcion.trim(),
-        img: base64Optimizado,
-        fechaCreacion: serverTimestamp()
+        img: base64Opt,
+        origen: 'Taller Nuevo Chimbote',
+        createdAt: serverTimestamp()
       });
 
-      mostrarToast("Prenda publicada con éxito en el catálogo.");
+      mostrarToast("✦ Prenda publicada exitosamente en el catálogo.");
       setNombre('');
       setPrecio('');
       setCostoUnitario('');
-      setStock('10');
+      setStock('12');
       setDescripcion('');
       setImagenArchivo(null);
       setPreviewUrl('');
     } catch (err) {
-      console.error("Error guardando prenda:", err);
-      alert("Ocurrió un error al procesar la imagen y guardar.");
+      console.error(err);
+      alert("Error al procesar la imagen y guardar en Firestore.");
     } finally {
       setGuardando(false);
     }
   };
 
-  const handleEliminarProducto = async (id) => {
-    if (window.confirm("¿Seguro que deseas eliminar esta prenda del catálogo?")) {
-      try {
-        await deleteDoc(doc(db, 'productos', id));
-        mostrarToast("Prenda eliminada.");
-      } catch (err) {
-        console.error(err);
-      }
-    }
-  };
-
-  const handleCambiarEstadoPedido = async (id, nuevoEstado) => {
-    try {
-      await updateDoc(doc(db, 'pedidos', id), { estado: nuevoEstado });
-      mostrarToast(`Pedido actualizado a ${nuevoEstado}`);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // CÁLCULOS DEL BALANCE CONTABLE
+  // Cálculos Financieros del Balance Contable
   const ahora = new Date();
   const pedidosFiltrados = pedidos.filter(p => {
-    if (!p.fecha) return true;
-    const fechaPedido = p.fecha?.toDate ? p.fecha.toDate() : new Date(p.fecha);
-    const diferenciaDias = (ahora - fechaPedido) / (1000 * 60 * 60 * 24);
-    return diferenciaDias <= diasFiltro;
+    if (!p.createdAt && !p.fecha) return true;
+    const fechaP = p.createdAt?.toDate ? p.createdAt.toDate() : new Date();
+    const difDias = (ahora - fechaP) / (1000 * 60 * 60 * 24);
+    return difDias <= diasFiltro;
   });
 
-  const totalIngresos = pedidosFiltrados.reduce((acc, p) => acc + (parseFloat(p.total) || 0), 0);
-  
-  // Estimación de costo de mercadería vendida
-  const totalCostos = pedidosFiltrados.reduce((acc, p) => {
+  const ingresosTotales = pedidosFiltrados.reduce((acc, p) => acc + (parseFloat(p.subtotal || p.total) || 0), 0);
+  const costoTotalMercaderia = pedidosFiltrados.reduce((acc, p) => {
     const costoItems = (p.items || []).reduce((cAcc, item) => {
-      const costo = item.costoUnitario || (parseFloat(item.precio || 0) * 0.42);
-      return cAcc + (costo * (item.cantidad || 1));
+      const c = item.costoUnitario || (parseFloat(item.precio || 0) * 0.4);
+      return cAcc + (c * (item.cantidad || 1));
     }, 0);
     return acc + costoItems;
   }, 0);
 
-  const gananciaNeta = totalIngresos - totalCostos;
-  const margenUtilidad = totalIngresos > 0 ? ((gananciaNeta / totalIngresos) * 100).toFixed(1) : 0;
+  const gananciaNetaReal = ingresosTotales - costoTotalMercaderia;
+  const margenUtilidad = ingresosTotales > 0 ? ((gananciaNetaReal / ingresosTotales) * 100).toFixed(1) : 0;
   const unidadesVendidas = pedidosFiltrados.reduce((acc, p) => {
-    return acc + (p.items || []).reduce((iAcc, item) => iAcc + (item.cantidad || 1), 0);
+    return acc + (p.items || []).reduce((iAcc, it) => iAcc + (it.cantidad || 1), 0);
   }, 0);
 
-  // EXPORTADOR EXCEL CON SHEETJS
-  const exportarExcelBalance = () => {
+  // Generador de Excel con SheetJS
+  const exportarBalanceExcel = () => {
     const filas = [];
 
     pedidosFiltrados.forEach(p => {
-      const fechaStr = p.fecha?.toDate 
-        ? p.fecha.toDate().toLocaleDateString('es-PE') 
-        : new Date().toLocaleDateString('es-PE');
+      const fechaTxt = p.createdAt?.toDate 
+        ? p.createdAt.toDate().toLocaleDateString('es-PE') 
+        : (p.fecha ? p.fecha.split(' ')[0] : 'Reciente');
 
       (p.items || []).forEach(item => {
-        const cUnit = item.costoUnitario || (parseFloat(item.precio || 0) * 0.42);
-        const pVenta = parseFloat(item.precio || 0);
-        const subtotal = pVenta * (item.cantidad || 1);
-        const gananciaItem = subtotal - (cUnit * (item.cantidad || 1));
+        const cU = item.costoUnitario || (parseFloat(item.precio || 0) * 0.4);
+        const pV = parseFloat(item.precio || 0);
+        const q = item.cantidad || 1;
+        const tot = pV * q;
+        const util = tot - (cU * q);
 
         filas.push({
-          "Fecha": fechaStr,
-          "ID Pedido": p.id.slice(0, 7),
+          "Fecha": fechaTxt,
+          "ID Pedido": p.id.slice(0, 8),
           "Cliente": p.cliente?.nombre || 'Venta Web',
+          "Destino / Agencia": `${p.cliente?.ciudad || 'Destino'} - Shalom ${p.cliente?.agenciaShalom || ''}`,
           "Prenda": item.nombre,
-          "Talla": item.talla || 'M',
-          "Cantidad": item.cantidad || 1,
-          "Costo Unitario (S/.)": cUnit.toFixed(2),
-          "Precio Venta (S/.)": pVenta.toFixed(2),
-          "Total Ingreso (S/.)": subtotal.toFixed(2),
-          "Ganancia Neta (S/.)": gananciaItem.toFixed(2),
-          "Estado": p.estado || 'Pendiente'
+          "Talla": item.tallaSeleccionada || 'M',
+          "Cantidad": q,
+          "Costo Unitario (S/.)": cU.toFixed(2),
+          "Precio Venta (S/.)": pV.toFixed(2),
+          "Ingreso Total (S/.)": tot.toFixed(2),
+          "Ganancia Neta (S/.)": util.toFixed(2),
+          "Estado Pedido": p.estado || 'Pendiente'
         });
       });
     });
 
-    // Fila vacía y totales
+    // Fila de Consolidado
     filas.push({});
     filas.push({
-      "Fecha": "RESUMEN TOTAL",
-      "ID Pedido": `Periodo: ${diasFiltro} días`,
+      "Fecha": "RESUMEN CONSOLIDADO",
+      "ID Pedido": `Filtro: ${diasFiltro} Días`,
+      "Prenda": `Origen: Taller Nuevo Chimbote`,
       "Cantidad": unidadesVendidas,
-      "Total Ingreso (S/.)": totalIngresos.toFixed(2),
-      "Ganancia Neta (S/.)": gananciaNeta.toFixed(2),
-      "Estado": `Margen: ${margenUtilidad}%`
+      "Ingreso Total (S/.)": ingresosTotales.toFixed(2),
+      "Ganancia Neta (S/.)": gananciaNetaReal.toFixed(2),
+      "Estado Pedido": `Margen: ${margenUtilidad}%`
     });
 
-    const worksheet = XLSX.utils.json_to_sheet(filas);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Balance Contable");
+    const hoja = XLSX.utils.json_to_sheet(filas);
+    const libro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libro, hoja, "Balance ROSSELY");
 
     const fechaHoy = new Date().toISOString().slice(0, 10);
-    XLSX.writeFile(workbook, `Balance_ROSSELY_${diasFiltro}Dias_${fechaHoy}.xlsx`);
+    XLSX.writeFile(libro, `Balance_ROSSELY_${diasFiltro}Dias_${fechaHoy}.xlsx`);
   };
 
   return (
-    <div className="w-full min-h-screen py-8 px-6 sm:px-10 md:px-16 font-sans text-stone-800 space-y-10">
+    <div className="w-full min-h-screen py-8 px-6 sm:px-10 md:px-16 font-sans space-y-10">
       
-      {/* Toast flotante */}
+      {/* Toast Animado */}
       {toastMsg && (
-        <div className="fixed bottom-6 right-6 z-50 bg-[#1C1819] text-[#F8D7E0] border border-[#701A3B] px-5 py-3 rounded-2xl shadow-xl flex items-center gap-2 text-xs uppercase tracking-wider font-semibold animate-bounce">
+        <div className="fixed bottom-6 right-6 z-50 bg-[#1C1819] text-[#F8D7E0] border border-[#701A3B] px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-2 text-xs uppercase tracking-wider font-semibold animate-bounce">
           <CheckCircle className="w-4 h-4 text-emerald-400" />
           <span>{toastMsg}</span>
         </div>
       )}
 
-      {/* Encabezado Superior */}
+      {/* Cabecera del Panel */}
       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 border-b border-[#FCE4EC] pb-6">
         <div>
-          <span className="text-[10px] font-bold tracking-[0.25em] text-[#A24869] uppercase">
-            Dirección Ejecutiva
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-bold tracking-[0.25em] text-[#A24869] uppercase">
+              Dirección de Operaciones
+            </span>
+            <span className="text-[10px] bg-[#FDF5F7] text-[#701A3B] border border-[#F8D7E0] px-2 py-0.5 rounded-md font-mono">
+              Nuevo Chimbote
+            </span>
+          </div>
           <h1 className="font-serif text-3xl font-black text-[#701A3B] tracking-tight">
-            Panel de Control ROSSELY
+            Panel de Gestión ROSSELY
           </h1>
         </div>
 
-        {/* Pestañas de Navegación del Panel */}
+        {/* Pestañas del Panel */}
         <div className="flex gap-2 p-1.5 bg-[#FDF5F7] border border-[#F8D7E0] rounded-2xl">
           <button
             onClick={() => setTabActiva('inventario')}
@@ -217,7 +240,7 @@ export default function AdminDashboardView() {
               tabActiva === 'inventario' ? 'bg-[#701A3B] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
             }`}
           >
-            <Package className="w-3.5 h-3.5" /> Inventario
+            <Package className="w-3.5 h-3.5" /> Inventario ({productos.length})
           </button>
           <button
             onClick={() => setTabActiva('pedidos')}
@@ -225,7 +248,7 @@ export default function AdminDashboardView() {
               tabActiva === 'pedidos' ? 'bg-[#701A3B] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
             }`}
           >
-            <ShoppingBag className="w-3.5 h-3.5" /> Entregas ({pedidos.length})
+            <ShoppingBag className="w-3.5 h-3.5" /> Envíos Shalom ({pedidos.length})
           </button>
           <button
             onClick={() => setTabActiva('balance')}
@@ -241,20 +264,19 @@ export default function AdminDashboardView() {
       {/* PESTAÑA 1: INVENTARIO */}
       {tabActiva === 'inventario' && (
         <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-10">
-          
-          {/* Formulario de Alta */}
+          {/* Formulario */}
           <form onSubmit={handleGuardarProducto} className="lg:col-span-5 bg-white p-7 rounded-3xl border border-[#FCE4EC] shadow-xs space-y-4">
-            <h3 className="font-serif text-lg font-bold text-stone-900">Agregar Nueva Prenda</h3>
+            <h3 className="font-serif text-lg font-bold text-stone-900">Agregar Nueva Prenda de Seda</h3>
 
             <div>
               <label className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider mb-1">Nombre de la Prenda *</label>
               <input 
                 type="text" 
                 required 
-                placeholder="Pijama Satín Vino Rosa"
+                placeholder="Pijama Satín Manga Larga Palo Rosa"
                 value={nombre} 
                 onChange={(e) => setNombre(e.target.value)}
-                className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-4 py-2 text-xs outline-none focus:border-[#701A3B]"
+                className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none focus:border-[#701A3B]"
               />
             </div>
 
@@ -265,7 +287,7 @@ export default function AdminDashboardView() {
                   type="number" 
                   step="0.01" 
                   required 
-                  placeholder="149.00"
+                  placeholder="180.00"
                   value={precio} 
                   onChange={(e) => setPrecio(e.target.value)}
                   className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none focus:border-[#701A3B]"
@@ -276,14 +298,14 @@ export default function AdminDashboardView() {
                 <input 
                   type="number" 
                   step="0.01" 
-                  placeholder="55.00"
+                  placeholder="70.00"
                   value={costoUnitario} 
                   onChange={(e) => setCostoUnitario(e.target.value)}
                   className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none focus:border-[#701A3B]"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider mb-1">Stock Inicial</label>
+                <label className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider mb-1">Stock Taller</label>
                 <input 
                   type="number" 
                   value={stock} 
@@ -304,11 +326,11 @@ export default function AdminDashboardView() {
                   <option value="Pijamas">Pijamas de Satín</option>
                   <option value="Batas">Batas & Kimonos</option>
                   <option value="Lencería">Lencería Fina</option>
-                  <option value="Accesorios">Accesorios de Seda</option>
+                  <option value="Accesorios">Antifaces & Scrunchies</option>
                 </select>
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider mb-1">Tallas (Separadas por coma)</label>
+                <label className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider mb-1">Tallas Disponibles</label>
                 <input 
                   type="text" 
                   value={tallas} 
@@ -318,13 +340,13 @@ export default function AdminDashboardView() {
               </div>
             </div>
 
-            {/* Input de Fotografía con previsualización */}
+            {/* Input Fotografía Local */}
             <div>
               <label className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider mb-1">Fotografía de la Prenda *</label>
-              <label className="w-full border-2 border-dashed border-[#F8D7E0] hover:border-[#701A3B] rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-[#FDF5F7]/50 transition">
+              <label className="w-full border-2 border-dashed border-[#F8D7E0] hover:border-[#701A3B] rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-[#FDF5F7]/40 transition">
                 <UploadCloud className="w-6 h-6 text-[#701A3B] mb-1" />
-                <span className="text-xs text-stone-600 font-medium">Seleccionar imagen desde tu dispositivo</span>
-                <span className="text-[10px] text-stone-400">Compresión y optimización instantánea en navegador</span>
+                <span className="text-xs text-stone-700 font-medium">Subir foto desde PC o Celular</span>
+                <span className="text-[10px] text-stone-400">Compresión automática en Canvas (sin Storage)</span>
                 <input type="file" accept="image/*" onChange={handleSeleccionarImagen} className="hidden" />
               </label>
 
@@ -338,21 +360,21 @@ export default function AdminDashboardView() {
             <button
               type="submit"
               disabled={guardando}
-              className="w-full bg-[#701A3B] hover:bg-[#56132D] text-white py-3.5 rounded-xl font-bold uppercase tracking-widest text-xs transition duration-300 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              className="w-full bg-[#701A3B] hover:bg-[#56132D] text-white py-3.5 rounded-xl font-bold uppercase tracking-widest text-xs transition duration-300 flex items-center justify-center gap-2 cursor-pointer shadow-xs disabled:opacity-50"
             >
               {guardando ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" /> Optimizando y Publicando...
+                  <Loader2 className="w-4 h-4 animate-spin" /> Procesando Imagen y Guardando...
                 </>
               ) : (
-                'Publicar Prenda en el Catálogo'
+                '✦ Publicar Prenda en Catálogo'
               )}
             </button>
           </form>
 
-          {/* Listado en Tiempo Real */}
+          {/* Listado en Vivo */}
           <div className="lg:col-span-7 bg-white p-7 rounded-3xl border border-[#FCE4EC] shadow-xs space-y-4">
-            <h3 className="font-serif text-lg font-bold text-stone-900">Prendas Registradas ({productos.length})</h3>
+            <h3 className="font-serif text-lg font-bold text-stone-900">Prendas en el Catálogo ({productos.length})</h3>
             
             <div className="space-y-3 max-h-[580px] overflow-y-auto pr-2">
               {productos.map(p => (
@@ -362,14 +384,14 @@ export default function AdminDashboardView() {
                     <div>
                       <p className="font-bold text-xs text-stone-900">{p.nombre}</p>
                       <p className="text-[10px] text-stone-400">{p.categoria} • Stock: {p.stock} • Tallas: {p.tallas?.join(', ')}</p>
-                      <p className="text-xs font-semibold text-[#701A3B]">S/. {p.precio?.toFixed(2)}</p>
+                      <p className="text-xs font-semibold text-[#701A3B]">S/. {parseFloat(p.precio || 0).toFixed(2)}</p>
                     </div>
                   </div>
 
                   <button 
-                    onClick={() => handleEliminarProducto(p.id)}
+                    onClick={() => eliminarProducto(p.id)}
                     className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                    title="Eliminar"
+                    title="Eliminar prenda"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -377,55 +399,70 @@ export default function AdminDashboardView() {
               ))}
             </div>
           </div>
-
         </div>
       )}
 
-      {/* PESTAÑA 2: ENTREGAS Y PEDIDOS */}
+      {/* PESTAÑA 2: ENTREGAS Y ENVÍOS SHALOM */}
       {tabActiva === 'pedidos' && (
         <div className="bg-white p-7 rounded-3xl border border-[#FCE4EC] shadow-xs space-y-4">
-          <h3 className="font-serif text-lg font-bold text-stone-900">Gestión de Envíos y Comprobantes</h3>
-          
+          <div className="flex justify-between items-center">
+            <h3 className="font-serif text-lg font-bold text-stone-900">Despachos Nacionales vía Shalom</h3>
+            <span className="text-xs text-stone-500 font-light flex items-center gap-1">
+              <Truck className="w-4 h-4 text-[#701A3B]" /> Salidas desde Nuevo Chimbote
+            </span>
+          </div>
+
           <div className="space-y-4">
             {pedidos.length === 0 ? (
-              <p className="text-xs text-stone-400 py-8 text-center">No hay pedidos registrados aún.</p>
+              <p className="text-xs text-stone-400 py-10 text-center">No hay pedidos registrados en la plataforma.</p>
             ) : (
               pedidos.map(p => (
                 <div key={p.id} className="p-5 rounded-2xl border border-[#F8D7E0] bg-[#FFFBFB] space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-100 pb-2">
                     <div>
                       <span className="text-xs font-bold text-[#701A3B]">Pedido #{p.id.slice(0, 8)}</span>
-                      <p className="text-[11px] text-stone-600 font-medium">Cliente: {p.cliente?.nombre} ({p.cliente?.telefono})</p>
+                      <p className="text-[11px] text-stone-700 font-medium">
+                        Cliente: {p.cliente?.nombre} • DNI: {p.cliente?.dni} • Tel: {p.cliente?.telefono}
+                      </p>
+                      <p className="text-[10px] text-stone-500 flex items-center gap-1">
+                        <MapPin className="w-3 h-3 text-[#A24869]" /> Destino: {p.cliente?.ciudad} — Shalom: {p.cliente?.agenciaShalom}
+                      </p>
                     </div>
-                    <div className="flex items-center gap-2">
+
+                    <div className="flex items-center gap-3">
                       <span className="text-xs font-bold text-stone-900">Total: S/. {parseFloat(p.total || 0).toFixed(2)}</span>
                       <select
                         value={p.estado || 'Pendiente'}
-                        onChange={(e) => handleCambiarEstadoPedido(p.id, e.target.value)}
+                        onChange={(e) => actualizarEstadoPedido(p.id, e.target.value)}
                         className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-stone-300 bg-white"
                       >
-                        <option value="Pendiente">Pendiente</option>
+                        <option value="Pendiente de Verificación">Pendiente de Verificación</option>
                         <option value="Pago Verificado">Pago Verificado</option>
                         <option value="En Confección/Empaque">En Confección/Empaque</option>
-                        <option value="Enviado">Enviado</option>
+                        <option value="Dejado en Shalom Chimbote">Dejado en Shalom Chimbote</option>
+                        <option value="En Tránsito a Destino">En Tránsito a Destino</option>
                         <option value="Entregado">Entregado</option>
                       </select>
                     </div>
                   </div>
 
-                  {/* Detalle de prendas y comprobante */}
                   <div className="flex flex-wrap justify-between items-center gap-4 text-xs">
                     <div className="space-y-1">
                       {(p.items || []).map((it, idx) => (
                         <p key={idx} className="text-stone-700">
-                          • {it.cantidad}x {it.nombre} (Talla {it.talla}) - S/. {(it.precio * it.cantidad).toFixed(2)}
+                          • {it.cantidad || 1}x {it.nombre} (Talla {it.tallaSeleccionada || 'M'}) — S/. {(it.precio * (it.cantidad || 1)).toFixed(2)}
                         </p>
                       ))}
                     </div>
 
                     {p.comprobanteImg && (
-                      <a href={p.comprobanteImg} target="_blank" rel="noreferrer" className="text-[11px] text-[#701A3B] underline font-semibold">
-                        Ver Comprobante de Pago Adjunto ↗
+                      <a 
+                        href={p.comprobanteImg} 
+                        target="_blank" 
+                        rel="noreferrer" 
+                        className="text-xs font-bold text-[#701A3B] underline hover:text-[#56132D]"
+                      >
+                        Ver Captura de Pago Adjunta ↗
                       </a>
                     )}
                   </div>
@@ -440,7 +477,7 @@ export default function AdminDashboardView() {
       {tabActiva === 'balance' && (
         <div className="space-y-8">
           
-          {/* Selector de Rango Temporal */}
+          {/* Selector y Exportador */}
           <div className="bg-white p-6 rounded-3xl border border-[#FCE4EC] shadow-xs flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <Clock className="w-5 h-5 text-[#701A3B]" />
@@ -472,45 +509,45 @@ export default function AdminDashboardView() {
             </div>
 
             <button
-              onClick={exportarExcelBalance}
+              onClick={exportarBalanceExcel}
               className="bg-emerald-700 hover:bg-emerald-800 text-white px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition flex items-center gap-2 cursor-pointer shadow-xs"
             >
-              <FileSpreadsheet className="w-4 h-4" /> Exportar a Excel (.xlsx)
+              <FileSpreadsheet className="w-4 h-4" /> ✦ Exportar Balance Contable a Excel
             </button>
           </div>
 
-          {/* Tarjetas KPI Financieras */}
+          {/* Tarjetas KPI */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
             <div className="bg-white p-5 rounded-2xl border border-[#FCE4EC] shadow-xs space-y-1">
               <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Ingresos Brutos</span>
-              <p className="text-xl font-bold text-stone-900">S/. {totalIngresos.toFixed(2)}</p>
-              <span className="text-[10px] text-emerald-600 font-medium">Ventas en el periodo</span>
+              <p className="text-xl font-bold text-stone-900">S/. {ingresosTotales.toFixed(2)}</p>
+              <span className="text-[10px] text-emerald-600 font-medium">En {diasFiltro} días</span>
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-[#FCE4EC] shadow-xs space-y-1">
               <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Costo Mercadería</span>
-              <p className="text-xl font-bold text-stone-700">S/. {totalCostos.toFixed(2)}</p>
-              <span className="text-[10px] text-stone-400 font-medium">Costo de confección/satén</span>
+              <p className="text-xl font-bold text-stone-700">S/. {costoTotalMercaderia.toFixed(2)}</p>
+              <span className="text-[10px] text-stone-400 font-medium">Insumos y confección</span>
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-[#FCE4EC] shadow-xs space-y-1 bg-gradient-to-br from-[#FFFBFB] to-[#FDF5F7]">
               <span className="text-[10px] font-bold text-[#701A3B] uppercase tracking-wider">Utilidad Neta Real</span>
-              <p className="text-xl font-black text-[#701A3B]">S/. {gananciaNeta.toFixed(2)}</p>
+              <p className="text-xl font-black text-[#701A3B]">S/. {gananciaNetaReal.toFixed(2)}</p>
               <span className="text-[10px] text-[#A24869] font-medium">Margen estimado: {margenUtilidad}%</span>
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-[#FCE4EC] shadow-xs space-y-1">
-              <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Unidades Vendidas</span>
+              <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Prendas Despachadas</span>
               <p className="text-xl font-bold text-stone-900">{unidadesVendidas}</p>
-              <span className="text-[10px] text-stone-400 font-medium">Prendas despachadas</span>
+              <span className="text-[10px] text-stone-400 font-medium">Unidades vendidas</span>
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-[#FCE4EC] shadow-xs space-y-1">
               <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Ticket Promedio</span>
               <p className="text-xl font-bold text-stone-900">
-                S/. {pedidosFiltrados.length > 0 ? (totalIngresos / pedidosFiltrados.length).toFixed(2) : '0.00'}
+                S/. {pedidosFiltrados.length > 0 ? (ingresosTotales / pedidosFiltrados.length).toFixed(2) : '0.00'}
               </p>
-              <span className="text-[10px] text-stone-400 font-medium">Por compra realizada</span>
+              <span className="text-[10px] text-stone-400 font-medium">Por compra</span>
             </div>
           </div>
 

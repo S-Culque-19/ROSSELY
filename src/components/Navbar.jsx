@@ -11,7 +11,8 @@ import {
   Package, 
   Clock, 
   Eye, 
-  ArrowRight 
+  ArrowRight,
+  Truck 
 } from 'lucide-react';
 
 export default function Navbar({ busqueda, setBusqueda }) {
@@ -28,18 +29,17 @@ export default function Navbar({ busqueda, setBusqueda }) {
   
   const [menuAbierto, setMenuAbierto] = useState(false);
 
-  // Métricas rápidas para la barra de control
-  const totalActivos = productos.length;
-  const pedidosPendientes = pedidos.filter(p => p.estado === 'Pendiente' || !p.estado).length;
+  // Telemetría en vivo
+  const totalPrendas = productos.length;
+  const pedidosPendientes = pedidos.filter(p => p.estado === 'Pendiente' || p.estado === 'Pendiente de Verificación').length;
 
   return (
     <header className="sticky top-0 z-50 w-full shadow-xs">
       
-      {/* 1. BARRA DE COMANDO SUPERIOR (SOLO ADMIN - "GOD BAR") */}
+      {/* 1. GOD BAR SUPERIOR (SOLO ADMIN) */}
       {esAdmin ? (
         <div className="w-full bg-[#1C1819] text-white py-2 px-6 md:px-16 border-b border-[#701A3B]/40 flex flex-wrap items-center justify-between gap-3 text-xs">
           
-          {/* Badge de Estado Ejecutivo */}
           <div className="flex items-center gap-2.5">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -51,17 +51,16 @@ export default function Navbar({ busqueda, setBusqueda }) {
             </div>
             <span className="hidden sm:inline-block text-stone-600">|</span>
             <span className="hidden sm:inline-block text-[10px] tracking-wider text-stone-400 font-light">
-              Navegando como cliente
+              Taller Nuevo Chimbote
             </span>
           </div>
 
-          {/* Telemetría Rápida de Tienda */}
           <div className="flex items-center gap-4 text-[11px]">
             <div className="hidden md:flex items-center gap-1.5 text-stone-300">
               <Package className="w-3.5 h-3.5 text-[#A24869]" />
               <span>Prendas:</span>
               <span className="font-bold text-white bg-stone-800/80 px-2 py-0.5 rounded-md border border-stone-700">
-                {totalActivos}
+                {totalPrendas}
               </span>
             </div>
 
@@ -73,7 +72,6 @@ export default function Navbar({ busqueda, setBusqueda }) {
               </span>
             </div>
 
-            {/* Acceso Directo al Dashboard */}
             <button
               onClick={() => navegarA('admin')}
               className="bg-[#701A3B] hover:bg-[#8D254C] text-white text-[10px] font-bold uppercase tracking-widest px-3.5 py-1.5 rounded-full flex items-center gap-1.5 transition duration-200 cursor-pointer shadow-xs"
@@ -85,16 +83,16 @@ export default function Navbar({ busqueda, setBusqueda }) {
           </div>
         </div>
       ) : (
-        /* Cintillo Estándar de Cliente */
-        <div className="w-full bg-[#701A3B] text-white text-[10px] sm:text-[11px] py-2 px-6 md:px-16 text-center font-medium tracking-[0.2em] uppercase">
-          ✦ Envíos a todo el Perú • Prendas confeccionadas en satín exclusivo ROSSELY ✦
+        /* Cintillo Oficial con Origen y Logística */
+        <div className="w-full bg-[#701A3B] text-white text-[10px] sm:text-[11px] py-2 px-6 md:px-16 text-center font-medium tracking-[0.2em] uppercase flex items-center justify-center gap-2">
+          <span>✦ Confeccionado en Nuevo Chimbote • Envíos a todo el Perú vía Shalom ✦</span>
         </div>
       )}
 
-      {/* 2. NAVEGADOR PRINCIPAL BLUSH EDITORIAL */}
+      {/* 2. BARRA DE NAVEGACIÓN PRINCIPAL */}
       <div className="w-full bg-white/95 backdrop-blur-md border-b border-[#FCE4EC] px-6 sm:px-10 md:px-16 py-4 flex items-center justify-between gap-6">
         
-        {/* Logotipo Oficial */}
+        {/* Logotipo */}
         <div 
           className="flex flex-col cursor-pointer select-none group shrink-0" 
           onClick={() => navegarA('home')}
@@ -114,7 +112,7 @@ export default function Navbar({ busqueda, setBusqueda }) {
           </span>
         </div>
 
-        {/* Enlaces de Navegación Editorial */}
+        {/* Menú Editorial */}
         <nav className="hidden lg:flex items-center gap-8 text-xs uppercase tracking-[0.2em] font-semibold text-stone-600">
           <button 
             onClick={() => navegarA('home')}
@@ -137,13 +135,13 @@ export default function Navbar({ busqueda, setBusqueda }) {
           </button>
         </nav>
 
-        {/* Buscador de Colección */}
+        {/* Buscador */}
         <div className="flex-1 max-w-xs xl:max-w-md mx-2 hidden md:block">
           <div className="relative flex items-center bg-[#FDF5F7] border border-[#F8D7E0] rounded-full px-4 py-2">
             <Search className="w-4 h-4 text-[#A24869] mr-2 shrink-0" />
             <input 
               type="text" 
-              placeholder="Buscar modelos, batas, conjuntos..." 
+              placeholder="Buscar modelos de satén..." 
               value={busqueda}
               onChange={(e) => {
                 setBusqueda(e.target.value);
@@ -154,10 +152,9 @@ export default function Navbar({ busqueda, setBusqueda }) {
           </div>
         </div>
 
-        {/* Acciones de Usuario y Gestión */}
+        {/* Acciones */}
         <div className="flex items-center gap-5 text-xs font-medium shrink-0">
           
-          {/* Enlace rápido Comunidad para pantallas táctiles */}
           <button 
             onClick={() => navegarA('community')}
             className="lg:hidden text-[11px] font-bold uppercase tracking-wider text-[#701A3B] px-3 py-1.5 rounded-full bg-[#FDF5F7] border border-[#F8D7E0]"
@@ -188,7 +185,7 @@ export default function Navbar({ busqueda, setBusqueda }) {
                       onClick={() => { navegarA('admin'); setMenuAbierto(false); }}
                       className="w-full text-left px-4 py-2.5 font-semibold text-[#701A3B] hover:bg-[#FDF5F7] flex items-center gap-2 cursor-pointer"
                     >
-                      <LayoutDashboard className="w-3.5 h-3.5" /> Panel de Inventario
+                      <LayoutDashboard className="w-3.5 h-3.5" /> Panel Gestor
                     </button>
                   )}
 
@@ -210,12 +207,11 @@ export default function Navbar({ busqueda, setBusqueda }) {
             </button>
           )}
 
-          {/* Bolsa de Compras con Control de Rol */}
+          {/* Bolsa de Compras */}
           {esAdmin ? (
-            /* Icono en modo supervisor (deshabilitado para compras) */
             <div 
               className="relative p-2 text-stone-400 cursor-not-allowed group"
-              title="Compras restringidas para el Administrador en modo supervisión"
+              title="Compras restringidas en Modo Supervisión"
             >
               <ShoppingBag className="w-5 h-5 stroke-[1.5]" />
               <span className="absolute -top-1 -right-1 bg-stone-800 text-[#F8D7E0] text-[8px] font-bold px-1.5 py-0.2 rounded-full border border-stone-600">

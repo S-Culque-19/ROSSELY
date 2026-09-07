@@ -25,17 +25,18 @@ export const StoreProvider = ({ children }) => {
   const [pedidos, setPedidos] = useState([]);
   const [cargandoProductos, setCargandoProductos] = useState(true);
 
+  // Sesión persistida
   const [usuarioActual, setUsuarioActual] = useState(() => {
     const saved = localStorage.getItem('rossely_sesion');
     return saved ? JSON.parse(saved) : null;
   });
 
+  // Carrito local de respaldo
   const [carrito, setCarrito] = useState(() => {
     const saved = localStorage.getItem('rossely_carrito');
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Vista inicial
   const [currentView, setCurrentView] = useState(() => {
     const saved = localStorage.getItem('rossely_sesion');
     if (saved) {
@@ -49,17 +50,16 @@ export const StoreProvider = ({ children }) => {
 
   const esAdmin = usuarioActual?.role === 'admin';
 
-  // 1. Escuchar catálogo en tiempo real
+  // 1. Escuchar catálogo de productos en tiempo real
   useEffect(() => {
     try {
       const colRef = collection(db, 'productos');
       const q = query(colRef, orderBy('createdAt', 'desc'));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
+      const unsub = onSnapshot(q, (snapshot) => {
         const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
         setProductos(list);
         setCargandoProductos(false);
       }, () => {
-        // Fallback sin orderBy por si no hay índice
         const unsubFallback = onSnapshot(colRef, (snapshot) => {
           const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
           setProductos(list);
@@ -67,7 +67,7 @@ export const StoreProvider = ({ children }) => {
         });
         return () => unsubFallback();
       });
-      return () => unsubscribe();
+      return () => unsub();
     } catch (e) {
       setCargandoProductos(false);
     }
@@ -78,7 +78,7 @@ export const StoreProvider = ({ children }) => {
     try {
       const colRef = collection(db, 'pedidos');
       const q = query(colRef, orderBy('createdAt', 'desc'));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
+      const unsub = onSnapshot(q, (snapshot) => {
         const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
         setPedidos(list);
       }, () => {
@@ -88,24 +88,23 @@ export const StoreProvider = ({ children }) => {
         });
         return () => unsubFallback();
       });
-      return () => unsubscribe();
+      return () => unsub();
     } catch (e) {
       console.warn("Pedidos offline:", e);
     }
   }, []);
 
-  // 3. Sincronización del carrito Multidispositivo en tiempo real (Cloud Sync)
+  // 3. Sincronización del Carrito Multidispositivo en Cloud Firestore
   useEffect(() => {
-    // Si no hay usuario logueado o es admin, lee de local
     if (!usuarioActual?.uid || esAdmin) {
       const saved = localStorage.getItem('rossely_carrito');
       setCarrito(saved ? JSON.parse(saved) : []);
       return;
     }
 
-    // Escucha en vivo el documento del carrito del usuario en Firestore
+    // Escucha en tiempo real el carrito remoto del cliente
     const cartDocRef = doc(db, 'usuarios', usuarioActual.uid, 'carrito', 'actual');
-    const unsubscribe = onSnapshot(cartDocRef, (snap) => {
+    const unsub = onSnapshot(cartDocRef, (snap) => {
       if (snap.exists()) {
         const cloudItems = snap.data().items || [];
         setCarrito(cloudItems);
@@ -114,13 +113,13 @@ export const StoreProvider = ({ children }) => {
         setCarrito([]);
       }
     }, (error) => {
-      console.error("Error sincronizando carrito remoto:", error);
+      console.error("Error sincronizando carrito en la nube:", error);
     });
 
-    return () => unsubscribe();
+    return () => unsub();
   }, [usuarioActual?.uid, esAdmin]);
 
-  // Persistir cambios en Firestore y localStorage
+  // Actualizador universal de carrito (Local + Firestore)
   const sincronizarCarrito = async (nuevosItems) => {
     setCarrito(nuevosItems);
     localStorage.setItem('rossely_carrito', JSON.stringify(nuevosItems));
@@ -133,7 +132,7 @@ export const StoreProvider = ({ children }) => {
           ultimaModificacion: serverTimestamp() 
         }, { merge: true });
       } catch (err) {
-        console.error("Error al actualizar carrito en nube:", err);
+        console.error("Error al persistir carrito remoto:", err);
       }
     }
   };
@@ -146,23 +145,27 @@ export const StoreProvider = ({ children }) => {
     }
   }, [usuarioActual]);
 
-  // Login
+  // Autenticación Resiliente
   const iniciarSesion = async (email, password) => {
     const correo = email.trim().toLowerCase();
 
-    // Cuenta de administrador dedicada
+    // Prioridad Absoluta: Administradora ROSSELY
     if (correo === 'carmenadeshda.org.com' && password === 'prins2026') {
       const adminData = {
+        uid: 'admin_rossely_carmen',
         email: 'carmenadeshda.org.com',
-        nombre: 'Administradora ROSSELY',
+        nombre: 'Carmen Estrada (Dirección)',
         role: 'admin'
       };
       setUsuarioActual(adminData);
       setCarrito([]);
+      localStorage.setItem('rossely_sesion', JSON.stringify(adminData));
+      localStorage.removeItem('rossely_carrito');
       setCurrentView('admin');
       return { success: true, role: 'admin' };
     }
 
+    // Flujo Clientes con Firebase Auth
     try {
       const cred = await signInWithEmailAndPassword(auth, correo, password);
       const clienteData = {
@@ -175,24 +178,53 @@ export const StoreProvider = ({ children }) => {
       setCurrentView('home');
       return { success: true, role: 'user' };
     } catch (error) {
-      return { success: false, error: 'Credenciales inválidas o cuenta no registrada.' };
+      let mensaje = 'Credenciales no válidas o cuenta no registrada.';
+      if (error.code === 'auth/operation-not-allowed') {
+        mensaje = 'Habilita "Correo electrónico/Contraseña" en Firebase Console > Authentication.';
+      } else if (error.code === 'auth/user-not-found') {
+        mensaje = 'No existe una cuenta registrada con este correo.';
+      } else if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        mensaje = 'La contraseña ingresada es incorrecta.';
+      } else if (error.code === 'auth/network-request-failed') {
+        mensaje = 'Fallo de conexión. Revisa tu acceso a internet.';
+      }
+      return { success: false, error: mensaje };
     }
   };
 
   const registrarUsuario = async (nombre, email, password) => {
     const correo = email.trim().toLowerCase();
     if (!correo.endsWith('@gmail.com')) {
-      return { success: false, error: 'Clientes solo pueden registrarse con cuentas @gmail.com' };
+      return { success: false, error: 'El registro de clientas requiere una cuenta @gmail.com' };
     }
 
     try {
       const cred = await createUserWithEmailAndPassword(auth, correo, password);
-      const nuevoCliente = { uid: cred.user.uid, email: correo, nombre, role: 'user' };
+      const nuevoCliente = { 
+        uid: cred.user.uid, 
+        email: correo, 
+        nombre, 
+        role: 'user',
+        origen: 'Nuevo Chimbote Web',
+        fechaRegistro: new Date().toISOString()
+      };
+
+      // Registro de perfil en Firestore
+      await setDoc(doc(db, 'usuarios', cred.user.uid), nuevoCliente);
+
       setUsuarioActual(nuevoCliente);
       setCurrentView('home');
       return { success: true };
     } catch (error) {
-      return { success: false, error: error.message };
+      let mensaje = error.message;
+      if (error.code === 'auth/email-already-in-use') {
+        mensaje = 'Este correo ya se encuentra registrado. Inicia sesión.';
+      } else if (error.code === 'auth/operation-not-allowed') {
+        mensaje = 'Autenticación no habilitada en Firebase Console.';
+      } else if (error.code === 'auth/weak-password') {
+        mensaje = 'La contraseña debe tener al menos 6 caracteres.';
+      }
+      return { success: false, error: mensaje };
     }
   };
 
@@ -207,89 +239,75 @@ export const StoreProvider = ({ children }) => {
     setCurrentView('home');
   };
 
-  // Carrito: Restricción estricta para Administrador + Cloud Sync
+  // Carrito con control estricto de roles
   const agregarAlCarrito = (producto, talla = 'M') => {
     if (esAdmin) {
-      alert("Acción deshabilitada: Las cuentas de Administrador no pueden realizar compras ni usar el carrito.");
+      alert("Modo Supervisión: La cuenta administrativa no realiza compras directas.");
       return;
     }
-    const nuevoItem = {
-      ...producto,
-      cartItemId: Date.now() + Math.random(),
-      tallaSeleccionada: talla,
-      cantidad: 1
-    };
-    const nuevoCarrito = [...carrito, nuevoItem];
-    sincronizarCarrito(nuevoCarrito);
+    const index = carrito.findIndex(i => i.id === producto.id && i.tallaSeleccionada === talla);
+    let nuevo;
+    if (index > -1) {
+      nuevo = [...carrito];
+      nuevo[index].cantidad = (nuevo[index].cantidad || 1) + 1;
+    } else {
+      nuevo = [
+        ...carrito, 
+        { 
+          ...producto, 
+          cartItemId: Date.now() + Math.random(), 
+          tallaSeleccionada: talla,
+          cantidad: 1 
+        }
+      ];
+    }
+    sincronizarCarrito(nuevo);
     setCurrentView('cart');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const removerDelCarrito = (cartItemId) => {
-    const nuevoCarrito = carrito.filter(item => item.cartItemId !== cartItemId);
-    sincronizarCarrito(nuevoCarrito);
+    const nuevo = carrito.filter(i => i.cartItemId !== cartItemId);
+    sincronizarCarrito(nuevo);
   };
 
   const limpiarCarrito = () => {
     sincronizarCarrito([]);
   };
 
-  // Pedidos (Clientes)
+  // Pedidos y Envíos Shalom
   const registrarPedido = async (datosEnvio, comprobanteBase64 = null) => {
     if (esAdmin) {
-      alert("El administrador no puede generar órdenes.");
+      alert("El administrador no puede generar compras.");
       return null;
     }
-    const total = carrito.reduce((acc, item) => acc + (parseFloat(item.precio) || 0) * (item.cantidad || 1), 0);
+    const subtotal = carrito.reduce((acc, it) => acc + (parseFloat(it.precio) || 0) * (it.cantidad || 1), 0);
+    const costoEnvio = parseFloat(datosEnvio.costoEnvio || 0);
+    const total = subtotal + costoEnvio;
 
     const nuevoPedido = {
       cliente: datosEnvio,
       items: carrito,
+      subtotal,
+      envio: costoEnvio,
       total,
-      estado: "Pendiente",
+      estado: "Pendiente de Verificación",
       comprobanteImg: comprobanteBase64,
+      despacho: "Agencia Shalom desde Nuevo Chimbote",
       fecha: new Date().toLocaleDateString('es-PE') + ' ' + new Date().toLocaleTimeString('es-PE'),
       createdAt: serverTimestamp()
     };
 
-    try {
-      const docRef = await addDoc(collection(db, 'pedidos'), nuevoPedido);
-      limpiarCarrito();
-      return docRef.id;
-    } catch (e) {
-      const idLocal = String(Date.now()).slice(-6);
-      setPedidos(prev => [{ id: idLocal, ...nuevoPedido }, ...prev]);
-      limpiarCarrito();
-      return idLocal;
-    }
+    const docRef = await addDoc(collection(db, 'pedidos'), nuevoPedido);
+    limpiarCarrito();
+    return docRef.id;
   };
 
-  // Actualizar Estado del Pedido (Admin)
   const actualizarEstadoPedido = async (id, nuevoEstado) => {
     try {
       await updateDoc(doc(db, 'pedidos', id), { estado: nuevoEstado });
     } catch (e) {
       setPedidos(prev => prev.map(p => p.id === id ? { ...p, estado: nuevoEstado } : p));
-    }
-  };
-
-  // CRUD Productos (Admin)
-  const agregarProducto = async (data) => {
-    try {
-      await addDoc(collection(db, 'productos'), {
-        ...data,
-        createdAt: serverTimestamp()
-      });
-    } catch (e) {
-      setProductos(prev => [...prev, { ...data, id: String(Date.now()) }]);
-    }
-  };
-
-  const editarProducto = async (id, dataActualizada) => {
-    try {
-      await updateDoc(doc(db, 'productos', id), dataActualizada);
-    } catch (e) {
-      setProductos(prev => prev.map(p => p.id === id ? { ...p, ...dataActualizada } : p));
     }
   };
 
@@ -333,8 +351,6 @@ export const StoreProvider = ({ children }) => {
       limpiarCarrito,
       registrarPedido,
       actualizarEstadoPedido,
-      agregarProducto,
-      editarProducto,
       eliminarProducto,
       navegarA
     }}>
