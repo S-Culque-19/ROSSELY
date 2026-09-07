@@ -1128,7 +1128,7 @@ export default function AdminDashboardView() {
             <Crown className="w-10 h-10 text-[#D4AF37] mx-auto mb-2" />
             <p className="font-serif text-base font-bold text-[#701A3B]">Módulo de Suscriptoras Activas</p>
             <p className="max-w-md mx-auto font-light">
-              Las clientas afiliadas al Plan Premium se actualizan en tiempo real. Al cumplirse los 30 días sin renovación de pago, el sistema las desafilia automáticamente al Plan Free.
+              Las clientas afiliadas al Plan Premium se actualizan en tiempo real. Al cumplirse los 30 días sin renovación de pago, el sistema las baja de rango al Plan Free.
             </p>
           </div>
         </div>
