@@ -1,72 +1,109 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Gift, X } from 'lucide-react';
+import { useStore } from '../context/StoreContext';
+import { db } from '../firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { Moon, Sparkles, Check, X } from 'lucide-react';
 
 export default function NocturnalExperience() {
-  const [saludo, setSaludo] = useState('');
-  const [abierto, setAbierto] = useState(false);
-  const [revelado, setRevelado] = useState(false);
+  const { usuarioActual, esAdmin } = useStore();
 
+  // 1. REGLA ESTRICTA: Solo clientas registradas. Jamás anónimos ni Admin.
+  if (!usuarioActual || esAdmin) {
+    return null;
+  }
+
+  const [config, setConfig] = useState({
+    activo: true,
+    mensaje: "El confort de la seda te espera esta noche...",
+    textoBoton: "+ BENEFICIO",
+    codigoDescuento: "SEDA-NOCHE",
+    horaInicio: 20,
+    horaFin: 6
+  });
+
+  const [esHorarioNocturno, setEsHorarioNocturno] = useState(false);
+  const [copiado, setCopiado] = useState(false);
+  const [visible, setVisible] = useState(true);
+
+  // 2. Lee la configuración que tú guardas desde el Dashboard
   useEffect(() => {
-    const hora = new Date().getHours();
-    if (hora >= 20 || hora < 6) {
-      setSaludo("Buenas noches. El confort de la seda te espera...");
-    } else if (hora >= 6 && hora < 12) {
-      setSaludo("Buenos días. Despierta con la delicadeza de ROSSELY...");
-    } else {
-      setSaludo("Buenas tardes. Haz una pausa y renueva tu descanso...");
-    }
+    const docRef = doc(db, 'configuracion', 'experiencia_nocturna');
+    const unsub = onSnapshot(docRef, (snap) => {
+      if (snap.exists()) {
+        setConfig(prev => ({ ...prev, ...snap.data() }));
+      }
+    });
+    return () => unsub();
   }, []);
 
+  // 3. Valida el horario configurado
+  useEffect(() => {
+    const verificarHora = () => {
+      const horaActual = new Date().getHours();
+      const { horaInicio, horaFin } = config;
+      
+      if (horaInicio > horaFin) {
+        setEsHorarioNocturno(horaActual >= horaInicio || horaActual < horaFin);
+      } else {
+        setEsHorarioNocturno(horaActual >= horaInicio && horaActual < horaFin);
+      }
+    };
+
+    verificarHora();
+    const intervalo = setInterval(verificarHora, 60000);
+    return () => clearInterval(intervalo);
+  }, [config]);
+
+  if (!config.activo || !esHorarioNocturno || !visible) {
+    return null;
+  }
+
+  const handleCopiarCupon = () => {
+    navigator.clipboard.writeText(config.codigoDescuento || 'SEDA-NOCHE');
+    setCopiado(true);
+    setTimeout(() => setCopiado(false), 3500);
+  };
+
   return (
-    <>
-      {/* Saludo dinámico en cintillo o widget flotante inferior */}
-      <div className="fixed bottom-5 left-5 z-40">
-        <button
-          onClick={() => setAbierto(true)}
-          className="bg-white/90 backdrop-blur-md border border-[#F8D7E0] hover:border-[#701A3B] text-stone-800 px-4 py-2.5 rounded-full shadow-lg text-xs flex items-center gap-2 transition duration-300 transform hover:scale-105 cursor-pointer"
-        >
-          <Sparkles className="w-3.5 h-3.5 text-[#701A3B] animate-pulse" />
-          <span className="font-serif italic text-stone-700 hidden sm:inline">{saludo}</span>
-          <span className="font-bold text-[10px] uppercase tracking-wider text-[#701A3B] bg-[#FDF5F7] px-2 py-0.5 rounded-full">
-            ✦ Beneficio
+    <aside className="fixed bottom-6 left-6 z-40 max-w-md animate-in fade-in slide-in-from-bottom-5 duration-500 font-sans">
+      <div className="bg-[#1C1819]/95 backdrop-blur-md border border-[#701A3B]/60 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3">
+        <div className="w-8 h-8 rounded-full bg-[#701A3B]/40 border border-[#701A3B] flex items-center justify-center shrink-0">
+          <Moon className="w-4 h-4 text-[#F8D7E0]" />
+        </div>
+
+        <div className="flex-1 min-w-0 pr-1">
+          <p className="text-[11px] font-medium text-stone-200 truncate">
+            {config.mensaje}
+          </p>
+          <span className="text-[9px] text-[#A24869] font-serif uppercase tracking-wider block">
+            Exclusivo para ti, {usuarioActual.nombre?.split(' ')[0]}
           </span>
+        </div>
+
+        <button
+          onClick={handleCopiarCupon}
+          className="bg-gradient-to-r from-[#701A3B] to-[#8E214B] text-[#FFF5F7] px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider transition flex items-center gap-1.5 cursor-pointer shrink-0 border border-[#F8D7E0]/20"
+        >
+          {copiado ? (
+            <>
+              <Check className="w-3 h-3 text-emerald-400" />
+              <span>¡Copiado!</span>
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-3 h-3 text-amber-300" />
+              <span>{config.textoBoton || '+ BENEFICIO'}</span>
+            </>
+          )}
+        </button>
+
+        <button
+          onClick={() => setVisible(false)}
+          className="text-stone-400 hover:text-white p-1 rounded-lg transition cursor-pointer"
+        >
+          <X className="w-3.5 h-3.5" />
         </button>
       </div>
-
-      {/* Modal Editorial del Beneficio Nocturno */}
-      {abierto && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-xs">
-          <div className="relative w-full max-w-sm bg-white rounded-3xl p-6 border border-[#F8D7E0] shadow-2xl text-center space-y-4">
-            <button onClick={() => setAbierto(false)} className="absolute top-4 right-4 text-stone-400 hover:text-stone-700 cursor-pointer">
-              <X className="w-4 h-4" />
-            </button>
-
-            <div className="w-12 h-12 rounded-full bg-[#FDF5F7] border border-[#F8D7E0] text-[#701A3B] flex items-center justify-center mx-auto">
-              <Gift className="w-6 h-6" />
-            </div>
-
-            <h3 className="font-serif text-xl font-bold text-stone-900">Cofre de Seda ROSSELY</h3>
-            <p className="text-xs text-stone-500 font-light leading-relaxed">
-              Un detalle reservado para celebrar tu buen gusto y descanso esta temporada.
-            </p>
-
-            {!revelado ? (
-              <button
-                onClick={() => setRevelado(true)}
-                className="w-full bg-[#701A3B] hover:bg-[#56132D] text-white py-3 rounded-xl text-xs font-bold uppercase tracking-widest cursor-pointer transition shadow-xs"
-              >
-                Abrir Detalle Exclusivo
-              </button>
-            ) : (
-              <div className="p-4 bg-[#FDF5F7] rounded-xl border border-[#F8D7E0] space-y-1">
-                <span className="text-[10px] font-bold text-[#A24869] uppercase tracking-widest">Cortesía Desbloqueada</span>
-                <p className="font-serif text-base font-bold text-[#701A3B]">Empaque de Seda de Regalo + Envío Bonificado</p>
-                <p className="text-[10px] text-stone-500">Se aplicará de forma preferencial en tu orden.</p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </>
+    </aside>
   );
 }

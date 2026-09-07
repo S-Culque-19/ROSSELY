@@ -33,7 +33,9 @@ import {
   Moon,
   Gift,
   Save,
-  Sparkles
+  Sparkles,
+  Trophy,
+  Crown
 } from 'lucide-react';
 
 // Compresión Canvas integrada localmente (Cero dependencias de Storage)
@@ -73,8 +75,8 @@ const optimizarImagenCanvas = (file, maxWidth = 1100, quality = 0.75) => {
 };
 
 export default function AdminDashboardView() {
-  const { productos, pedidos, actualizarEstadoPedido, eliminarProducto } = useStore();
-  const [tabActiva, setTabActiva] = useState('inventario'); // 'inventario' | 'pedidos' | 'balance' | 'mensajes' | 'config'
+  const { productos, pedidos, actualizarEstadoPedido, eliminarProducto, calcularMembresiaRuleta } = useStore();
+  const [tabActiva, setTabActiva] = useState('inventario'); // 'inventario' | 'pedidos' | 'balance' | 'mensajes' | 'config' | 'vip' | 'suscripciones'
 
   // Estados del Formulario de Prendas
   const [nombre, setNombre] = useState('');
@@ -225,10 +227,8 @@ export default function AdminDashboardView() {
 
     setGuardando(true);
     try {
-      // 1. Compresión Canvas Base64 sin Storage
       const base64Opt = await optimizarImagenCanvas(imagenArchivo, 1100, 0.75);
 
-      // 2. Inserción directa en Cloud Firestore
       await addDoc(collection(db, 'productos'), {
         nombre: nombre.trim(),
         precio: parseFloat(precio),
@@ -315,7 +315,6 @@ export default function AdminDashboardView() {
       });
     });
 
-    // Fila de Consolidado
     filas.push({});
     filas.push({
       "Fecha": "RESUMEN CONSOLIDADO",
@@ -377,7 +376,7 @@ export default function AdminDashboardView() {
           </h1>
         </div>
 
-        {/* 5 Pestañas del Panel */}
+        {/* 7 Pestañas del Panel */}
         <div className="flex flex-wrap gap-2 p-1.5 bg-[#FDF5F7] border border-[#F8D7E0] rounded-2xl">
           <button
             onClick={() => setTabActiva('inventario')}
@@ -428,6 +427,24 @@ export default function AdminDashboardView() {
             }`}
           >
             <Moon className="w-3.5 h-3.5 text-[#A24869]" /> Beneficio Nocturno
+          </button>
+
+          <button
+            onClick={() => setTabActiva('vip')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer flex items-center gap-1.5 ${
+              tabActiva === 'vip' ? 'bg-[#701A3B] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
+            }`}
+          >
+            <Trophy className="w-3.5 h-3.5 text-amber-400" /> Clientes VIP & Metas
+          </button>
+
+          <button
+            onClick={() => setTabActiva('suscripciones')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer flex items-center gap-1.5 ${
+              tabActiva === 'suscripciones' ? 'bg-[#701A3B] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
+            }`}
+          >
+            <Crown className="w-3.5 h-3.5 text-amber-300" /> Plan Premium
           </button>
         </div>
       </div>
@@ -722,7 +739,6 @@ export default function AdminDashboardView() {
       {tabActiva === 'mensajes' && (
         <div className="bg-white rounded-3xl border border-[#FCE4EC] shadow-sm overflow-hidden h-[620px] grid grid-cols-1 md:grid-cols-12">
           
-          {/* Columna Izquierda: Bandeja de Chats */}
           <div className="md:col-span-4 border-r border-[#FCE4EC] flex flex-col h-full bg-[#FFFBFB]">
             <div className="p-4 border-b border-[#FCE4EC] bg-white flex items-center justify-between">
               <div>
@@ -779,7 +795,6 @@ export default function AdminDashboardView() {
             </div>
           </div>
 
-          {/* Columna Derecha: Ventana de Conversación Tipo Messenger */}
           <div className="md:col-span-8 flex flex-col h-full bg-[#FCFBFB]">
             {chatSeleccionado ? (
               <>
@@ -890,7 +905,6 @@ export default function AdminDashboardView() {
           </div>
 
           <form onSubmit={handleGuardarConfigNocturna} className="space-y-4 text-xs">
-            {/* Toggle Activo */}
             <div className="flex items-center justify-between p-4 bg-[#FDF5F7] border border-[#F8D7E0] rounded-2xl">
               <div>
                 <p className="font-bold text-stone-800">Banner Nocturno Activo</p>
@@ -909,7 +923,6 @@ export default function AdminDashboardView() {
               </label>
             </div>
 
-            {/* Mensaje */}
             <div>
               <label className="block text-[11px] font-bold text-stone-700 uppercase tracking-wider mb-1">
                 Mensaje de Noche *
@@ -993,6 +1006,131 @@ export default function AdminDashboardView() {
               <span>Guardar Configuración en Firestore</span>
             </button>
           </form>
+        </div>
+      )}
+
+      {/* PESTAÑA 6: CLIENTES VIP & CADUCIDAD SEMANAL DE RULETAS */}
+      {tabActiva === 'vip' && (() => {
+        const resumenClientes = {};
+
+        pedidos.forEach(p => {
+          const email = p.cliente?.email || p.cliente?.correo || 'visitante@rossely.pe';
+          const nombre = p.cliente?.nombre || 'Cliente ROSSELY';
+          const totalPedido = parseFloat(p.subtotal || p.total) || 0;
+
+          if (!resumenClientes[email]) {
+            resumenClientes[email] = {
+              nombre,
+              email,
+              telefono: p.cliente?.telefono || 'No registrado',
+              ciudad: p.cliente?.ciudad || 'Destino',
+              gastoTotal: 0,
+              pedidosCliente: []
+            };
+          }
+
+          resumenClientes[email].gastoTotal += totalPedido;
+          resumenClientes[email].pedidosCliente.push(p);
+        });
+
+        const listaVIP = Object.values(resumenClientes).map(c => {
+          const membresia = calcularMembresiaRuleta(c.pedidosCliente);
+          return { ...c, ...membresia };
+        }).sort((a, b) => b.gastoTotal - a.gastoTotal);
+
+        return (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 bg-white p-6 rounded-3xl border border-[#FCE4EC] shadow-xs">
+              <div>
+                <h3 className="font-serif text-lg font-bold text-stone-900">Métricas de Consumo y Niveles Temporales (7 Días)</h3>
+                <p className="text-xs text-stone-500 font-light">
+                  El estatus y tiros de ruleta expiran automáticamente si no se mantiene el ritmo de compra semanal (Gold $\ge$ S/. 1,000 | Seda $\ge$ S/. 500).
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] bg-amber-50 text-amber-800 border border-amber-200 px-3 py-1 rounded-full font-bold uppercase tracking-wider">
+                  {listaVIP.filter(c => c.activo).length} Activos esta semana
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-3xl border border-[#FCE4EC] shadow-xs overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-[#FFF5F7] border-b border-[#F8D7E0] text-[#701A3B] uppercase text-[10px] font-bold tracking-wider">
+                    <tr>
+                      <th className="py-4 px-6">Clienta</th>
+                      <th className="py-4 px-4">Destino Shalom</th>
+                      <th className="py-4 px-4">Gasto Total Histórico</th>
+                      <th className="py-4 px-4">Gasto Últimos 7 Días</th>
+                      <th className="py-4 px-4">Estatus de Ruleta (Vigencia 1 Semana)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100">
+                    {listaVIP.length === 0 ? (
+                      <tr>
+                        <td colSpan="5" className="py-8 text-center text-stone-400">
+                          Aún no hay compras registradas para tabular consumos.
+                        </td>
+                      </tr>
+                    ) : (
+                      listaVIP.map((c, i) => (
+                        <tr key={i} className="hover:bg-[#FFFBFB] transition">
+                          <td className="py-4 px-6">
+                            <p className="font-bold text-stone-900">{c.nombre}</p>
+                            <p className="text-[10px] text-stone-400">{c.email} • Tel: {c.telefono}</p>
+                          </td>
+                          <td className="py-4 px-4 font-medium text-stone-700">{c.ciudad}</td>
+                          <td className="py-4 px-4 font-bold text-stone-900">S/. {c.gastoTotal.toFixed(2)}</td>
+                          <td className="py-4 px-4 font-bold text-[#701A3B]">S/. {c.gastoSemanal.toFixed(2)}</td>
+                          <td className="py-4 px-4">
+                            {c.nivel === 'Gold VIP' ? (
+                              <span className="bg-[#1C1819] text-[#D4AF37] border border-[#D4AF37] text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider inline-flex items-center gap-1">
+                                <Trophy className="w-3 h-3 text-[#D4AF37]" /> Gold VIP Vigente (1 Tiro)
+                              </span>
+                            ) : c.nivel === 'Plata / Seda' ? (
+                              <span className="bg-[#FDF5F7] text-[#701A3B] border border-[#F8D7E0] text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider inline-flex items-center gap-1">
+                                <Sparkles className="w-3 h-3 text-[#701A3B]" /> Seda Vigente (1 Tiro)
+                              </span>
+                            ) : (
+                              <span className="bg-stone-100 text-stone-500 text-[10px] font-semibold px-2.5 py-1 rounded-md">
+                                Expirado / Plan Gratis (Sin tiro activo)
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* PESTAÑA 7: GESTIÓN DE SUSCRIPTORAS PREMIUM Y PUNTOS */}
+      {tabActiva === 'suscripciones' && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 bg-white p-6 rounded-3xl border border-[#FCE4EC] shadow-xs">
+            <div>
+              <h3 className="font-serif text-lg font-bold text-stone-900">Auditoría de Suscripciones Premium (S/. 60/mes)</h3>
+              <p className="text-xs text-stone-500 font-light">
+                Control de vigencia a 30 días, renovación automática y puntos canjeables (8 pts = S/. 1.00).
+              </p>
+            </div>
+            <span className="text-[10px] bg-[#1C1819] text-[#D4AF37] border border-[#D4AF37] px-3 py-1 rounded-full font-bold uppercase tracking-wider">
+              Sello: Papel Seda & Caja ROSSELY
+            </span>
+          </div>
+
+          <div className="bg-white rounded-3xl border border-[#FCE4EC] shadow-xs p-8 text-center text-xs text-stone-600 space-y-2">
+            <Crown className="w-10 h-10 text-[#D4AF37] mx-auto mb-2" />
+            <p className="font-serif text-base font-bold text-[#701A3B]">Módulo de Suscriptoras Activas</p>
+            <p className="max-w-md mx-auto font-light">
+              Las clientas afiliadas al Plan Premium se actualizan en tiempo real. Al cumplirse los 30 días sin renovación de pago, el sistema las desafilia automáticamente al Plan Free.
+            </p>
+          </div>
         </div>
       )}
 

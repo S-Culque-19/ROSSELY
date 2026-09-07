@@ -1,147 +1,316 @@
-import React, { useState } from 'react';
-import { MessageCircle, X, Send, PhoneCall } from 'lucide-react';
-
-const FAQS = [
-  {
-    pregunta: '¿Cuál es la guía de tallas?',
-    keywords: ['talla', 'tallas', 'medida', 'medidas', 'guia'],
-    respuesta: 'Nuestras pijamas y batas se confeccionan en corte estándar nacional: Talla S (28-30), M (30-32), L (32-34) y XL (36). En lencería manejamos copas 32B, 34B y 36B con tirantes regulables.'
-  },
-  {
-    pregunta: '¿Cuáles son los métodos de pago?',
-    keywords: ['pago', 'pagos', 'metodo', 'yape', 'plin', 'bcp', 'bbva', 'tarjeta'],
-    respuesta: 'Aceptamos transferencias BCP, BBVA y pagos directos por Yape al número oficial +51 971 490 117. Tu comprobante se valida al instante.'
-  },
-  {
-    pregunta: '¿Cuánto tarda el envío?',
-    keywords: ['envio', 'envios', 'tiempo', 'despacho', 'demora', 'lima', 'provincia'],
-    respuesta: 'Para Lima Metropolitana el despacho demora de 24 a 48 horas hábiles. Para envíos a provincias (vía Olva Courier o Shalom) toma de 2 a 4 días hábiles.'
-  },
-  {
-    pregunta: '¿Políticas de cambio y garantía?',
-    keywords: ['cambio', 'cambios', 'garantia', 'devolucion', 'devoluciones'],
-    respuesta: 'Cuentas con hasta 7 días calendario para solicitar cambios de talla. La prenda debe conservar sus etiquetas originales intactas y no mostrar signos de uso.'
-  }
-];
+import React, { useState, useEffect, useRef } from 'react';
+import { useStore } from '../context/StoreContext';
+import { db } from '../firebase';
+import { 
+  collection, 
+  doc, 
+  setDoc, 
+  addDoc, 
+  onSnapshot, 
+  query, 
+  orderBy, 
+  serverTimestamp 
+} from 'firebase/firestore';
+import { 
+  MessageCircle, 
+  X, 
+  Send, 
+  UserCheck, 
+  Sparkles, 
+  HelpCircle, 
+  Truck, 
+  CreditCard, 
+  Ruler,
+  Minimize2
+} from 'lucide-react';
 
 export default function SupportChatbot() {
-  const [abierto, setAbierto] = useState(false);
-  const [mensajes, setMensajes] = useState([
-    { remitente: 'bot', texto: '¡Hola! Bienvenida a ROSSELY ✨. ¿En qué te puedo asesorar hoy sobre nuestras prendas de descanso?' }
-  ]);
-  const [entrada, setEntrada] = useState('');
+  const { esAdmin, usuarioActual } = useStore();
 
-  const obtenerRespuesta = (texto) => {
-    const q = texto.toLowerCase();
-    const match = FAQS.find(f => f.keywords.some(k => q.includes(k)));
-    if (match) return match.respuesta;
-    return 'Disculpa, no encontré una respuesta exacta para eso. Pero con gusto nuestra asesora te atenderá de inmediato por WhatsApp (+51 971 490 117).';
+  // El administrador jamás ve la burbuja de cliente
+  if (esAdmin) return null;
+
+  const [abierto, setAbierto] = useState(false);
+  const [modoEnVivo, setModoEnVivo] = useState(false);
+  const [chatId, setChatId] = useState(() => {
+    return localStorage.getItem('rossely_chat_id') || null;
+  });
+
+  const [mensajes, setMensajes] = useState([]);
+  const [nuevoMensaje, setNuevoMensaje] = useState('');
+  const [cargandoEnvio, setCargandoEnvio] = useState(false);
+
+  const messagesEndRef = useRef(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const enviarMensaje = (texto = entrada) => {
-    if (!texto.trim()) return;
-    const msgUsuario = { remitente: 'user', texto };
-    const botRespuesta = { remitente: 'bot', texto: obtenerRespuesta(texto) };
+  useEffect(() => {
+    scrollToBottom();
+  }, [mensajes, modoEnVivo, abierto]);
 
-    setMensajes(prev => [...prev, msgUsuario, botRespuesta]);
-    setEntrada('');
+  // Escucha mensajes en tiempo real cuando está en modo asesor
+  useEffect(() => {
+    if (!chatId || !modoEnVivo) return;
+
+    const q = query(
+      collection(db, 'chats', chatId, 'mensajes'),
+      orderBy('timestamp', 'asc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const msgs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setMensajes(msgs);
+    });
+
+    return () => unsubscribe();
+  }, [chatId, modoEnVivo]);
+
+  // Respuestas Automáticas Rápidas
+  const faqRespuestas = {
+    tallas: "Nuestras prendas de satén y seda cuentan con corte holgado anatómico (S, M, L). Si estás entre dos tallas, te sugerimos elegir la mayor para total confort al dormir.",
+    shalom: "Confeccionamos cada pieza en nuestro atelier de Nuevo Chimbote. Realizamos envíos diarios a todo el Perú vía Shalom (recojo en agencia o a domicilio según disponibilidad).",
+    pagos: "Aceptamos Yape, Plin y transferencias bancarias directas escaneando nuestro QR oficial a nombre de Carmennadeshdadelrosario Estrada."
+  };
+
+  const [faqRespuestaActual, setFaqRespuestaActual] = useState(null);
+
+  // Iniciar Conversación con Asesor Humano en Firestore
+  const activarAsesorHumano = async () => {
+    setModoEnVivo(true);
+    let idActual = chatId;
+
+    if (!idActual) {
+      idActual = usuarioActual?.uid || `guest_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      setChatId(idActual);
+      localStorage.setItem('rossely_chat_id', idActual);
+    }
+
+    const clienteNombre = usuarioActual?.nombre || 'Clienta Visitante';
+    const clienteEmail = usuarioActual?.email || 'Sin registrar';
+
+    const chatDocRef = doc(db, 'chats', idActual);
+    await setDoc(chatDocRef, {
+      clienteId: idActual,
+      clienteNombre,
+      clienteEmail,
+      ultimoMensaje: 'Solicitó asesor humano en vivo.',
+      ultimaFecha: serverTimestamp(),
+      noLeidoPorAdmin: true,
+      estado: 'en_espera'
+    }, { merge: true });
+
+    // Mensaje inicial del sistema si no hay mensajes previos
+    const colMensajes = collection(db, 'chats', idActual, 'mensajes');
+    await addDoc(colMensajes, {
+      remitente: 'sistema',
+      texto: `¡Hola ${clienteNombre}! Una asesora de nuestro atelier en Nuevo Chimbote se conectará en unos momentos. ¿En qué podemos orientarte?`,
+      timestamp: serverTimestamp()
+    });
+  };
+
+  const enviarMensajeCliente = async (e) => {
+    e.preventDefault();
+    if (!nuevoMensaje.trim() || !chatId) return;
+
+    const txt = nuevoMensaje.trim();
+    setNuevoMensaje('');
+    setCargandoEnvio(true);
+
+    try {
+      // 1. Guardar mensaje en subcolección
+      await addDoc(collection(db, 'chats', chatId, 'mensajes'), {
+        remitente: 'cliente',
+        texto: txt,
+        timestamp: serverTimestamp()
+      });
+
+      // 2. Actualizar metadata del chat
+      await setDoc(doc(db, 'chats', chatId), {
+        ultimoMensaje: txt,
+        ultimaFecha: serverTimestamp(),
+        noLeidoPorAdmin: true,
+        estado: 'activo'
+      }, { merge: true });
+    } catch (err) {
+      console.error("Error al enviar mensaje:", err);
+    } finally {
+      setCargandoEnvio(false);
+    }
   };
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 font-sans">
+    <>
+      {/* Botón Flotante (Burbuja Satinada) */}
       {!abierto && (
         <button
           onClick={() => setAbierto(true)}
-          className="bg-[#E6007E] hover:bg-[#c2006a] text-white p-4 rounded-full shadow-2xl flex items-center justify-center transition transform hover:scale-110 cursor-pointer"
-          title="Atención al cliente ROSSELY"
+          className="fixed bottom-6 right-6 z-50 bg-[#701A3B] hover:bg-[#56132D] text-white p-4 rounded-full shadow-2xl transition-all duration-300 transform hover:scale-105 flex items-center justify-center cursor-pointer border border-[#F8D7E0]/40 group"
+          title="Atención al Cliente ROSSELY"
         >
-          <MessageCircle className="w-6 h-6" />
+          <MessageCircle className="w-6 h-6 group-hover:rotate-6 transition-transform" />
+          <span className="max-w-0 overflow-hidden whitespace-nowrap group-hover:max-w-xs transition-all duration-500 text-[11px] font-bold uppercase tracking-wider pl-0 group-hover:pl-2">
+            Asesoría Seda
+          </span>
         </button>
       )}
 
+      {/* Ventana Flotante del Chatbot / Soporte */}
       {abierto && (
-        <div className="bg-white border border-pink-200 w-80 sm:w-96 rounded-3xl shadow-2xl flex flex-col h-[500px] overflow-hidden">
-          {/* Header */}
-          <div className="bg-[#831843] text-white px-5 py-4 flex items-center justify-between">
-            <div>
-              <h3 className="font-extrabold text-sm tracking-wider">ROSSELY SOPORTE</h3>
-              <p className="text-[10px] text-pink-200">Asistente en línea 24/7</p>
+        <div className="fixed bottom-6 right-6 z-50 w-[92vw] sm:w-[380px] h-[520px] bg-white rounded-3xl shadow-2xl border border-[#FCE4EC] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-5 duration-300 font-sans">
+          
+          {/* Cabecera Satinada */}
+          <div className="bg-gradient-to-r from-[#701A3B] to-[#56132D] text-white p-4 flex items-center justify-between shadow-md">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center border border-white/20">
+                <Sparkles className="w-4 h-4 text-[#F8D7E0]" />
+              </div>
+              <div>
+                <h3 className="font-serif text-sm font-bold tracking-wide">Atelier ROSSELY</h3>
+                <p className="text-[10px] text-[#F8D7E0] font-light flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-pulse"></span>
+                  Nuevo Chimbote • En línea
+                </p>
+              </div>
             </div>
-            <button onClick={() => setAbierto(false)} className="text-white hover:text-pink-200">
-              <X className="w-5 h-5 cursor-pointer" />
-            </button>
+            
+            <div className="flex items-center gap-1">
+              <button 
+                onClick={() => setAbierto(false)}
+                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
-          {/* Historial Mensajes */}
-          <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-[#FFF5F7]/30 text-xs">
-            {mensajes.map((m, idx) => (
-              <div key={idx} className={`flex ${m.remitente === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div
-                  className={`max-w-[82%] px-3.5 py-2.5 rounded-2xl leading-relaxed ${
-                    m.remitente === 'user'
-                      ? 'bg-[#831843] text-white rounded-br-none'
-                      : 'bg-white border border-pink-100 text-gray-800 rounded-bl-none shadow-sm'
-                  }`}
-                >
-                  {m.texto}
+          {/* Cuerpo: Preguntas Frecuentes vs Modo En Vivo */}
+          <div className="flex-1 p-4 overflow-y-auto bg-[#FFFBFB] space-y-3">
+            {!modoEnVivo ? (
+              <div className="space-y-4 pt-2">
+                <div className="bg-[#FDF5F7] border border-[#F8D7E0] p-4 rounded-2xl text-xs text-stone-700 leading-relaxed space-y-2">
+                  <p className="font-bold text-[#701A3B]">¡Bienvenida a ROSSELY Sleepwear!</p>
+                  <p className="font-light">
+                    Selecciona una consulta rápida o comunícate directamente con nuestro equipo de confección.
+                  </p>
+                </div>
+
+                {/* Botones de Preguntas Rápidas */}
+                <div className="space-y-2">
+                  <button
+                    onClick={() => setFaqRespuestaActual(faqRespuestas.tallas)}
+                    className="w-full text-left p-3 rounded-xl border border-[#F8D7E0] bg-white hover:bg-[#FDF5F7] text-xs font-semibold text-stone-800 transition flex items-center gap-2.5 shadow-2xs cursor-pointer"
+                  >
+                    <Ruler className="w-4 h-4 text-[#A24869]" />
+                    <span>Guía de Tallas y Calce</span>
+                  </button>
+
+                  <button
+                    onClick={() => setFaqRespuestaActual(faqRespuestas.shalom)}
+                    className="w-full text-left p-3 rounded-xl border border-[#F8D7E0] bg-white hover:bg-[#FDF5F7] text-xs font-semibold text-stone-800 transition flex items-center gap-2.5 shadow-2xs cursor-pointer"
+                  >
+                    <Truck className="w-4 h-4 text-[#A24869]" />
+                    <span>Envíos Shalom (Nuevo Chimbote al Perú)</span>
+                  </button>
+
+                  <button
+                    onClick={() => setFaqRespuestaActual(faqRespuestas.pagos)}
+                    className="w-full text-left p-3 rounded-xl border border-[#F8D7E0] bg-white hover:bg-[#FDF5F7] text-xs font-semibold text-stone-800 transition flex items-center gap-2.5 shadow-2xs cursor-pointer"
+                  >
+                    <CreditCard className="w-4 h-4 text-[#A24869]" />
+                    <span>Medios de Pago y QR Oficial</span>
+                  </button>
+                </div>
+
+                {/* Respuesta FAQ Desplegada */}
+                {faqRespuestaActual && (
+                  <div className="p-3.5 bg-white border-l-4 border-[#701A3B] rounded-r-xl text-xs text-stone-700 shadow-xs leading-relaxed animate-in fade-in">
+                    {faqRespuestaActual}
+                  </div>
+                )}
+
+                {/* Botón para llamar a Humano */}
+                <div className="pt-2 border-t border-[#F8D7E0]/60">
+                  <button
+                    onClick={activarAsesorHumano}
+                    className="w-full bg-[#701A3B] hover:bg-[#56132D] text-white py-3 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition cursor-pointer shadow-sm"
+                  >
+                    <UserCheck className="w-4 h-4 text-[#F8D7E0]" />
+                    <span>💬 Hablar con Asesora en Vivo</span>
+                  </button>
                 </div>
               </div>
-            ))}
+            ) : (
+              /* Flujo de Chat en Vivo con Asesora */
+              <div className="space-y-2.5 pt-1">
+                <div className="text-center my-1">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-[#A24869] bg-[#FDF5F7] px-3 py-1 rounded-full border border-[#F8D7E0]">
+                    Canal Directo con Taller Matriz
+                  </span>
+                </div>
 
-            {/* Sugerencias Rápidas */}
-            <div className="pt-2">
-              <p className="text-[10px] uppercase font-bold text-gray-400 mb-1.5">Preguntas frecuentes:</p>
-              <div className="flex flex-col gap-1.5">
-                {FAQS.map((faq) => (
-                  <button
-                    key={faq.pregunta}
-                    onClick={() => enviarMensaje(faq.pregunta)}
-                    className="text-left bg-white text-[#831843] border border-pink-200 hover:bg-pink-50 px-3 py-1.5 rounded-xl text-[11px] font-medium transition cursor-pointer"
-                  >
-                    • {faq.pregunta}
-                  </button>
-                ))}
+                {mensajes.map((m) => {
+                  const esMio = m.remitente === 'cliente';
+                  const esSistema = m.remitente === 'sistema';
+
+                  if (esSistema) {
+                    return (
+                      <div key={m.id} className="text-center my-2">
+                        <p className="text-[11px] text-stone-500 bg-[#FDF5F7] p-2.5 rounded-xl border border-[#F8D7E0] inline-block font-light">
+                          {m.texto}
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div
+                      key={m.id}
+                      className={`flex flex-col ${esMio ? 'items-end' : 'items-start'}`}
+                    >
+                      <span className="text-[9px] text-stone-400 px-1 mb-0.5">
+                        {esMio ? 'Tú' : 'Asesora ROSSELY'}
+                      </span>
+                      <div
+                        className={`max-w-[80%] p-3 rounded-2xl text-xs leading-relaxed ${
+                          esMio
+                            ? 'bg-[#701A3B] text-white rounded-br-xs shadow-xs'
+                            : 'bg-white text-stone-800 border border-[#F8D7E0] rounded-bl-xs shadow-xs'
+                        }`}
+                      >
+                        {m.texto}
+                      </div>
+                    </div>
+                  );
+                })}
+                <div ref={messagesEndRef} />
               </div>
-            </div>
+            )}
           </div>
 
-          {/* Derivación directa a WhatsApp */}
-          <div className="px-4 py-2 bg-white border-t border-pink-100 flex items-center justify-between text-xs">
-            <span className="text-gray-500 text-[11px]">¿Atención humana?</span>
-            <a
-              href="https://wa.me/51971490117?text=Hola%20ROSSELY,%20tengo%20una%20consulta%20sobre%20sus%20prendas"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[#25D366] font-bold flex items-center gap-1 hover:underline text-[11px]"
-            >
-              <PhoneCall className="w-3.5 h-3.5" /> +51 971 490 117
-            </a>
-          </div>
+          {/* Input de Mensajería en Vivo */}
+          {modoEnVivo && (
+            <form onSubmit={enviarMensajeCliente} className="p-3 bg-white border-t border-[#FCE4EC] flex items-center gap-2">
+              <input
+                type="text"
+                value={nuevoMensaje}
+                onChange={(e) => setNuevoMensaje(e.target.value)}
+                placeholder="Escribe tu consulta aquí..."
+                className="flex-1 bg-[#FDF5F7] border border-[#F8D7E0] rounded-full px-4 py-2 text-xs outline-none focus:border-[#701A3B] text-stone-800"
+              />
+              <button
+                type="submit"
+                disabled={cargandoEnvio || !nuevoMensaje.trim()}
+                className="p-2.5 bg-[#701A3B] hover:bg-[#56132D] text-white rounded-full transition cursor-pointer disabled:opacity-40"
+              >
+                <Send className="w-3.5 h-3.5" />
+              </button>
+            </form>
+          )}
 
-          {/* Input de Consulta */}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              enviarMensaje();
-            }}
-            className="p-3 bg-white border-t border-pink-100 flex gap-2"
-          >
-            <input
-              type="text"
-              placeholder="Escribe tu duda aquí..."
-              value={entrada}
-              onChange={(e) => setEntrada(e.target.value)}
-              className="flex-1 bg-[#FFF5F7] border border-pink-200 rounded-xl px-3 py-2 text-xs text-gray-800 outline-none focus:border-[#831843]"
-            />
-            <button
-              type="submit"
-              className="bg-[#831843] hover:bg-[#6b1336] text-white p-2.5 rounded-xl transition cursor-pointer"
-            >
-              <Send className="w-3.5 h-3.5" />
-            </button>
-          </form>
         </div>
       )}
-    </div>
+    </>
   );
 }

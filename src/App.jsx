@@ -3,7 +3,6 @@ import { StoreProvider, useStore } from './context/StoreContext';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import SupportChatbot from './components/SupportChatbot';
-import NocturnalExperience from './components/NocturnalExperience';
 
 import HomeView from './views/HomeView';
 import CatalogView from './views/CatalogView';
@@ -42,7 +41,6 @@ export default function App() {
         <MainContent busqueda={busqueda} />
         <Footer />
         <SupportChatbot />
-        <NocturnalExperience />
       </div>
     </StoreProvider>
   );

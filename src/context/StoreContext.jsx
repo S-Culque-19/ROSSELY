@@ -50,6 +50,35 @@ export const StoreProvider = ({ children }) => {
 
   const esAdmin = usuarioActual?.role === 'admin';
 
+  // --- LÓGICA DE FIDELIZACIÓN: NIVELES Y CADUCIDAD DE TIERS (7 DÍAS) ---
+  const calcularMembresiaRuleta = (pedidosCliente) => {
+    const ahora = new Date();
+    const sieteDiasAtras = new Date(ahora.getTime() - (7 * 24 * 60 * 60 * 1000));
+
+    const gastoSemanal = pedidosCliente.reduce((acc, p) => {
+      const fechaP = p.createdAt?.toDate ? p.createdAt.toDate() : new Date(p.fecha || ahora);
+      if (fechaP >= sieteDiasAtras) {
+        return acc + (parseFloat(p.subtotal || p.total) || 0);
+      }
+      return acc;
+    }, 0);
+
+    if (gastoSemanal >= 1000) {
+      return { nivel: 'Gold VIP', tipoRuleta: 'gold', activo: true, gastoSemanal };
+    } else if (gastoSemanal >= 500) {
+      return { nivel: 'Plata / Seda', tipoRuleta: 'estandar', activo: true, gastoSemanal };
+    } else {
+      return { nivel: 'Plan Gratis', tipoRuleta: null, activo: false, gastoSemanal };
+    }
+  };
+
+  // --- LÓGICA DE SUSCRIPCIÓN PREMIUM Y PUNTOS CANJEABLES (8 pts = S/. 1.00) ---
+  const verificarSuscripcionActiva = (usuario) => {
+    if (!usuario?.suscripcion) return false;
+    const exp = usuario.suscripcion.fechaExpiracion?.toDate ? usuario.suscripcion.fechaExpiracion.toDate() : new Date(usuario.suscripcion.fechaExpiracion || 0);
+    return usuario.suscripcion.tipo === 'premium' && new Date() < exp;
+  };
+
   // 1. Escuchar catálogo de productos en tiempo real
   useEffect(() => {
     try {
@@ -102,7 +131,6 @@ export const StoreProvider = ({ children }) => {
       return;
     }
 
-    // Escucha en tiempo real el carrito remoto del cliente
     const cartDocRef = doc(db, 'usuarios', usuarioActual.uid, 'carrito', 'actual');
     const unsub = onSnapshot(cartDocRef, (snap) => {
       if (snap.exists()) {
@@ -119,7 +147,6 @@ export const StoreProvider = ({ children }) => {
     return () => unsub();
   }, [usuarioActual?.uid, esAdmin]);
 
-  // Actualizador universal de carrito (Local + Firestore)
   const sincronizarCarrito = async (nuevosItems) => {
     setCarrito(nuevosItems);
     localStorage.setItem('rossely_carrito', JSON.stringify(nuevosItems));
@@ -149,7 +176,6 @@ export const StoreProvider = ({ children }) => {
   const iniciarSesion = async (email, password) => {
     const correo = email.trim().toLowerCase();
 
-    // Prioridad Absoluta: Administradora ROSSELY
     if (correo === 'carmenadeshda.org.com' && password === 'prins2026') {
       const adminData = {
         uid: 'admin_rossely_carmen',
@@ -165,28 +191,24 @@ export const StoreProvider = ({ children }) => {
       return { success: true, role: 'admin' };
     }
 
-    // Flujo Clientes con Firebase Auth
     try {
       const cred = await signInWithEmailAndPassword(auth, correo, password);
       const clienteData = {
         uid: cred.user.uid,
         email: cred.user.email,
         nombre: cred.user.displayName || correo.split('@')[0],
-        role: 'user'
+        role: 'user',
+        puntos: 160 // Valor base de prueba o leído de Firestore
       };
       setUsuarioActual(clienteData);
       setCurrentView('home');
       return { success: true, role: 'user' };
     } catch (error) {
       let mensaje = 'Credenciales no válidas o cuenta no registrada.';
-      if (error.code === 'auth/operation-not-allowed') {
-        mensaje = 'Habilita "Correo electrónico/Contraseña" en Firebase Console > Authentication.';
-      } else if (error.code === 'auth/user-not-found') {
+      if (error.code === 'auth/user-not-found') {
         mensaje = 'No existe una cuenta registrada con este correo.';
       } else if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
         mensaje = 'La contraseña ingresada es incorrecta.';
-      } else if (error.code === 'auth/network-request-failed') {
-        mensaje = 'Fallo de conexión. Revisa tu acceso a internet.';
       }
       return { success: false, error: mensaje };
     }
@@ -205,11 +227,12 @@ export const StoreProvider = ({ children }) => {
         email: correo, 
         nombre, 
         role: 'user',
+        puntos: 0,
+        suscripcion: { tipo: 'free' },
         origen: 'Nuevo Chimbote Web',
         fechaRegistro: new Date().toISOString()
       };
 
-      // Registro de perfil en Firestore
       await setDoc(doc(db, 'usuarios', cred.user.uid), nuevoCliente);
 
       setUsuarioActual(nuevoCliente);
@@ -219,8 +242,6 @@ export const StoreProvider = ({ children }) => {
       let mensaje = error.message;
       if (error.code === 'auth/email-already-in-use') {
         mensaje = 'Este correo ya se encuentra registrado. Inicia sesión.';
-      } else if (error.code === 'auth/operation-not-allowed') {
-        mensaje = 'Autenticación no habilitada en Firebase Console.';
       } else if (error.code === 'auth/weak-password') {
         mensaje = 'La contraseña debe tener al menos 6 caracteres.';
       }
@@ -239,7 +260,6 @@ export const StoreProvider = ({ children }) => {
     setCurrentView('home');
   };
 
-  // Carrito con control estricto de roles
   const agregarAlCarrito = (producto, talla = 'M') => {
     if (esAdmin) {
       alert("Modo Supervisión: La cuenta administrativa no realiza compras directas.");
@@ -275,7 +295,7 @@ export const StoreProvider = ({ children }) => {
     sincronizarCarrito([]);
   };
 
-  // Pedidos y Envíos Shalom
+  // Pedidos, Envíos Shalom y Acumulación de Puntos
   const registrarPedido = async (datosEnvio, comprobanteBase64 = null) => {
     if (esAdmin) {
       alert("El administrador no puede generar compras.");
@@ -285,15 +305,21 @@ export const StoreProvider = ({ children }) => {
     const costoEnvio = parseFloat(datosEnvio.costoEnvio || 0);
     const total = subtotal + costoEnvio;
 
+    // Conversión de puntos según plan (Plan Premium otorga el doble de puntos)
+    const esPremiumActivo = verificarSuscripcionActiva(usuarioActual);
+    const multiplicadorPuntos = esPremiumActivo ? 1 : 0.5; 
+    const puntosGanados = Math.floor(total * multiplicadorPuntos);
+
     const nuevoPedido = {
       cliente: datosEnvio,
       items: carrito,
       subtotal,
       envio: costoEnvio,
       total,
+      puntosOtorgados: puntosGanados,
       estado: "Pendiente de Verificación",
       comprobanteImg: comprobanteBase64,
-      despacho: "Agencia Shalom desde Nuevo Chimbote",
+      despacho: "Agencia Shalom desde Nuevo Chimbote (Empaquetado en papel seda y caja ROSSELY)",
       fecha: new Date().toLocaleDateString('es-PE') + ' ' + new Date().toLocaleTimeString('es-PE'),
       createdAt: serverTimestamp()
     };
@@ -352,7 +378,9 @@ export const StoreProvider = ({ children }) => {
       registrarPedido,
       actualizarEstadoPedido,
       eliminarProducto,
-      navegarA
+      navegarA,
+      calcularMembresiaRuleta,
+      verificarSuscripcionActiva
     }}>
       {children}
     </StoreContext.Provider>
