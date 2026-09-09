@@ -4,6 +4,7 @@ import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import SupportChatbot from './components/SupportChatbot';
 import LoyaltyWalletCard from './components/LoyaltyWalletCard';
+import SubscriptionBannerWidget from './components/SubscriptionBannerWidget';
 
 import HomeView from './views/HomeView';
 import CatalogView from './views/CatalogView';
@@ -13,6 +14,7 @@ import CartView from './views/CartView';
 import CheckoutView from './views/CheckoutView';
 import AdminDashboardView from './views/AdminDashboardView';
 import AuthView from './views/AuthView';
+import SubscriptionView from './views/SubscriptionView';
 import './App.css';
 
 function MainContent({ busqueda }) {
@@ -28,6 +30,7 @@ function MainContent({ busqueda }) {
       {currentView === 'checkout' && <CheckoutView />}
       {currentView === 'admin' && <AdminDashboardView />}
       {currentView === 'auth' && <AuthView />}
+      {currentView === 'suscripcion' && <SubscriptionView />}
     </main>
   );
 }
@@ -41,9 +44,10 @@ export default function App() {
         <Navbar busqueda={busqueda} setBusqueda={setBusqueda} />
         <MainContent busqueda={busqueda} />
         <Footer />
-        {/* Componentes Flotantes Globales Requeridos */}
+        {/* Componentes Flotantes Globales */}
         <SupportChatbot />
         <LoyaltyWalletCard />
+        <SubscriptionBannerWidget />
       </div>
     </StoreProvider>
   );
