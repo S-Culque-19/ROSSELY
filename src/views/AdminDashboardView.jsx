@@ -33,10 +33,14 @@ import {
   Save,
   Sparkles,
   Trophy,
-  Crown
+  Crown,
+  Bell,
+  Phone,
+  CheckCheck,
+  XCircle
 } from 'lucide-react';
 
-// Compresión Canvas integrada localmente que soporta múltiples imágenes y alta eficiencia
+// Compresión Canvas integrada localmente para múltiples imágenes y alta eficiencia
 const optimizarMultiplesImagenesCanvas = async (files, maxWidth = 1100, quality = 0.75) => {
   const promesas = Array.from(files).map((file) => {
     return new Promise((resolve, reject) => {
@@ -79,7 +83,10 @@ export default function AdminDashboardView() {
   const { productos, pedidos, actualizarEstadoPedido, eliminarProducto, calcularMembresiaRuleta } = useStore();
   const [tabActiva, setTabActiva] = useState('inventario'); // 'inventario' | 'pedidos' | 'balance' | 'mensajes' | 'config' | 'vip' | 'suscripciones'
 
-  // Estados del Formulario de Prendas (Soporta múltiples imágenes)
+  // Alarma sonora y visual en tiempo real para la administración
+  const [alertaUrgente, setAlertaUrgente] = useState(false);
+
+  // Estados del Formulario de Prendas (Múltiples imágenes)
   const [nombre, setNombre] = useState('');
   const [precio, setPrecio] = useState('');
   const [costoUnitario, setCostoUnitario] = useState('');
@@ -87,7 +94,7 @@ export default function AdminDashboardView() {
   const [categoria, setCategoria] = useState('Pijamas');
   const [tallas, setTallas] = useState('S, M, L');
   const [descripcion, setDescripcion] = useState('');
-  const [imagenesPrendas, setImagenesPrendas] = useState([]); // Array de strings Base64
+  const [imagenesPrendas, setImagenesPrendas] = useState([]);
   const [guardando, setGuardando] = useState(false);
   const [cargandoImgs, setCargandoImgs] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
@@ -95,7 +102,7 @@ export default function AdminDashboardView() {
   // Selector temporal para Balance Contable
   const [diasFiltro, setDiasFiltro] = useState(30);
 
-  // Estados para el Centro de Mensajería
+  // Estados para el Centro de Mensajería en Tiempo Real (Messenger / WhatsApp style)
   const [chats, setChats] = useState([]);
   const [chatSeleccionado, setChatSeleccionado] = useState(null);
   const [mensajesChat, setMensajesChat] = useState([]);
@@ -103,7 +110,10 @@ export default function AdminDashboardView() {
   const [enviandoRespuesta, setEnviandoRespuesta] = useState(false);
   const scrollChatRef = useRef(null);
 
-  // Estados para la Configuración de Experiencia Nocturna
+  // Solicitudes de suscripciones pendientes de verificación
+  const [suscripcionesPendientes, setSuscripcionesPendientes] = useState([]);
+
+  // Configuración de Experiencia Nocturna
   const [configNocturna, setConfigNocturna] = useState({
     activo: true,
     mensaje: "El confort de la seda te espera esta noche...",
@@ -119,6 +129,24 @@ export default function AdminDashboardView() {
     setTimeout(() => setToastMsg(''), 3000);
   };
 
+  // Disparar Alarma Sonora (Oscilador Web Audio API)
+  const emitirSonidoAlarma = () => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // Nota Re5
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.4);
+    } catch (e) {
+      console.warn("Audio Context restringido:", e);
+    }
+  };
+
   // 1. Cargar Configuración Nocturna desde Firestore
   useEffect(() => {
     const docRef = doc(db, 'configuracion', 'experiencia_nocturna');
@@ -130,30 +158,16 @@ export default function AdminDashboardView() {
     return () => unsub();
   }, []);
 
-  const handleGuardarConfigNocturna = async (e) => {
-    e.preventDefault();
-    setGuardandoConfig(true);
-    try {
-      await setDoc(doc(db, 'configuracion', 'experiencia_nocturna'), {
-        ...configNocturna,
-        horaInicio: parseInt(configNocturna.horaInicio, 10) || 20,
-        horaFin: parseInt(configNocturna.horaFin, 10) || 6,
-        actualizadoEn: serverTimestamp()
-      }, { merge: true });
-      mostrarToast("✦ Configuración de Beneficio Nocturno guardada.");
-    } catch (err) {
-      console.error(err);
-      alert("Error al actualizar la configuración nocturna.");
-    } finally {
-      setGuardandoConfig(false);
-    }
-  };
-
-  // 2. Suscripción a lista de chats de soporte en vivo
+  // 2. Suscripción a Chats con Alarma Instantánea
   useEffect(() => {
     const q = query(collection(db, 'chats'), orderBy('ultimaFecha', 'desc'));
     const unsub = onSnapshot(q, (snap) => {
       const lista = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const hayNuevos = lista.some(c => c.noLeidoPorAdmin);
+      if (hayNuevos) {
+        setAlertaUrgente(true);
+        emitirSonidoAlarma();
+      }
       setChats(lista);
       if (!chatSeleccionado && lista.length > 0) {
         setChatSeleccionado(lista[0]);
@@ -162,7 +176,22 @@ export default function AdminDashboardView() {
     return () => unsub();
   }, []);
 
-  // 3. Suscripción a mensajes del chat activo seleccionado
+  // 3. Suscripción a Solicitudes de Suscripción Pendientes con Alarma
+  useEffect(() => {
+    const q = query(collection(db, 'suscripciones_pendientes'), orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(q, (snap) => {
+      const lista = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const pendientes = lista.some(s => s.estado === 'Por Verificar');
+      if (pendientes) {
+        setAlertaUrgente(true);
+        emitirSonidoAlarma();
+      }
+      setSuscripcionesPendientes(lista);
+    }, () => {});
+    return () => unsub();
+  }, []);
+
+  // 4. Suscripción a mensajes del chat activo seleccionado
   useEffect(() => {
     if (!chatSeleccionado?.id) return;
 
@@ -211,6 +240,31 @@ export default function AdminDashboardView() {
     }
   };
 
+  const handleVerificarSuscripcionAdmin = async (suscripcionId, userId, nuevoEstado) => {
+    try {
+      await updateDoc(doc(db, 'suscripciones_pendientes', suscripcionId), {
+        estado: nuevoEstado
+      });
+
+      if (nuevoEstado === 'Verificado') {
+        const fechaExp = new Date();
+        fechaExp.setDate(fechaExp.getDate() + 30); // 30 días de vigencia
+
+        await updateDoc(doc(db, 'usuarios', userId), {
+          suscripcion: {
+            tipo: 'premium',
+            fechaExpiracion: fechaExp.toISOString()
+          },
+          puntos: 50 // Bono inicial al verificar membresía
+        });
+        mostrarToast("✦ Suscripción verificada y activada correctamente.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error al actualizar la suscripción.");
+    }
+  };
+
   const handleSeleccionarImagenesMultiples = async (e) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -231,7 +285,7 @@ export default function AdminDashboardView() {
   const handleGuardarProducto = async (e) => {
     e.preventDefault();
     if (!nombre.trim() || !precio || imagenesPrendas.length === 0) {
-      alert("Por favor completa el nombre, precio y sube al menos una fotografía de la prenda.");
+      alert("Por favor completa el nombre, precio y sube al menos una fotografía.");
       return;
     }
 
@@ -245,22 +299,22 @@ export default function AdminDashboardView() {
         categoria,
         tallas: tallas.split(',').map(t => t.trim().toUpperCase()),
         descripcion: descripcion.trim(),
-        img: imagenesPrendas[0], // Imagen principal para compatibilidad con vistas existentes
-        imagenes: imagenesPrendas, // Arreglo completo con múltiples vistas
+        img: imagenesPrendas[0],
+        imagenes: imagenesPrendas,
         origen: 'Taller Nuevo Chimbote',
         createdAt: serverTimestamp()
       });
 
-      mostrarToast("✦ Prenda publicada exitosamente en el catálogo.");
+      mostrarToast("✦ Prenda publicada exitosamente.");
       setNombre('');
       setPrecio('');
-      setCargandoUnitario('');
+      setCostoUnitario('');
       setStock('12');
       setDescripcion('');
       setImagenesPrendas([]);
     } catch (err) {
       console.error(err);
-      alert("Error al guardar la prenda en Firestore.");
+      alert("Error al guardar la prenda.");
     } finally {
       setGuardando(false);
     }
@@ -290,102 +344,97 @@ export default function AdminDashboardView() {
     return acc + (p.items || []).reduce((iAcc, it) => iAcc + (it.cantidad || 1), 0);
   }, 0);
 
-  // Generador de Excel con SheetJS
   const exportarBalanceExcel = () => {
     const filas = [];
-
     pedidosFiltrados.forEach(p => {
-      const fechaTxt = p.createdAt?.toDate 
-        ? p.createdAt.toDate().toLocaleDateString('es-PE') 
-        : (p.fecha ? p.fecha.split(' ')[0] : 'Reciente');
-
+      const fechaTxt = p.createdAt?.toDate ? p.createdAt.toDate().toLocaleDateString('es-PE') : 'Reciente';
       (p.items || []).forEach(item => {
         const cU = item.costoUnitario || (parseFloat(item.precio || 0) * 0.4);
         const pV = parseFloat(item.precio || 0);
         const q = item.cantidad || 1;
-        const tot = pV * q;
-        const util = tot - (cU * q);
-
         filas.push({
           "Fecha": fechaTxt,
           "ID Pedido": p.id.slice(0, 8),
           "Cliente": p.cliente?.nombre || 'Venta Web',
-          "Destino / Agencia": `${p.cliente?.ciudad || 'Destino'} - Shalom ${p.cliente?.agenciaShalom || ''}`,
-          "Prenda": item.nombre,
-          "Talla": item.tallaSeleccionada || 'M',
+          "Destino": `${p.cliente?.ciudad || 'Destino'} - ${p.cliente?.tipoEntrega || 'Shalom'}`,
+          "Prenda": item.name || item.nombre,
           "Cantidad": q,
-          "Costo Unitario (S/.)": cU.toFixed(2),
-          "Precio Venta (S/.)": pV.toFixed(2),
-          "Ingreso Total (S/.)": tot.toFixed(2),
-          "Ganancia Neta (S/.)": util.toFixed(2),
-          "Estado Pedido": p.estado || 'Pendiente'
+          "Ingreso (S/.)": (pV * q).toFixed(2),
+          "Ganancia (S/.)": ((pV - cU) * q).toFixed(2),
+          "Estado": p.estado || 'Pendiente'
         });
       });
-    });
-
-    filas.push({});
-    filas.push({
-      "Fecha": "RESUMEN CONSOLIDADO",
-      "ID Pedido": `Filtro: ${diasFiltro} Días`,
-      "Prenda": `Origen: Taller Nuevo Chimbote`,
-      "Cantidad": unidadesVendidas,
-      "Ingreso Total (S/.)": ingresosTotales.toFixed(2),
-      "Ganancia Neta (S/.)": gananciaNetaReal.toFixed(2),
-      "Estado Pedido": `Margen: ${margenUtilidad}%`
     });
 
     const hoja = XLSX.utils.json_to_sheet(filas);
     const libro = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(libro, hoja, "Balance ROSSELY");
-
-    const fechaHoy = new Date().toISOString().slice(0, 10);
-    XLSX.writeFile(libro, `Balance_ROSSELY_${diasFiltro}Dias_${fechaHoy}.xlsx`);
+    XLSX.writeFile(libro, `Balance_ROSSELY_${diasFiltro}Dias.xlsx`);
   };
 
   const chatsNoLeidosCount = chats.filter(c => c.noLeidoPorAdmin).length;
+  const pendientesSuscripcionCount = suscripcionesPendientes.filter(s => s.estado === 'Por Verificar').length;
 
   return (
-    <div className="w-full min-h-screen py-8 px-6 sm:px-10 md:px-16 font-sans space-y-8">
+    <div className="w-full min-h-screen py-8 px-6 sm:px-10 md:px-16 font-sans space-y-8 bg-[#FFF5F7]">
       
+      {/* Alarma Visual y Sonora Superior para Intervención Urgente */}
+      {(alertaUrgente || chatsNoLeidosCount > 0 || pendientesSuscripcionCount > 0) && (
+        <div className="bg-[#701A3B] text-[#F8D7E0] border border-[#D4AF37] p-4 rounded-2xl flex items-center justify-between shadow-2xl animate-pulse">
+          <div className="flex items-center gap-3">
+            <Bell className="w-6 h-6 text-[#D4AF37] animate-bounce" />
+            <div>
+              <p className="font-bold text-xs uppercase tracking-widest">¡Alerta de Intervención Requerida!</p>
+              <p className="text-[11px] text-white">Hay nuevos mensajes en vivo o comprobantes de suscripción esperando aprobación.</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => { setAlertaUrgente(false); setTabActiva('mensajes'); }}
+              className="bg-[#D4AF37] text-stone-900 font-bold px-4 py-2 rounded-xl text-xs uppercase tracking-wider cursor-pointer"
+            >
+              Ver Mensajes ({chatsNoLeidosCount})
+            </button>
+            <button 
+              onClick={() => { setAlertaUrgente(false); setTabActiva('suscripciones'); }}
+              className="bg-white text-[#701A3B] font-bold px-4 py-2 rounded-xl text-xs uppercase tracking-wider cursor-pointer"
+            >
+              Ver Suscripciones ({pendientesSuscripcionCount})
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Toast Animado */}
       {toastMsg && (
-        <div className="fixed bottom-6 right-6 z-50 bg-[#1C1819] text-[#F8D7E0] border border-[#701A3B] px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-2 text-xs uppercase tracking-wider font-semibold animate-bounce">
+        <div className="fixed bottom-6 right-6 z-50 bg-[#1C1819] text-[#F8D7E0] border border-[#701A3B] px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-2 text-xs uppercase tracking-wider font-semibold">
           <CheckCircle className="w-4 h-4 text-emerald-400" />
           <span>{toastMsg}</span>
         </div>
       )}
 
       {/* Sello de Marca y Packaging Oficial ROSSELY */}
-      <div className="bg-[#FFF5F7] border border-[#F8D7E0] p-3.5 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs text-[#701A3B]">
+      <div className="bg-[#FFFBFB] border border-[#F8D7E0] p-3.5 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs text-[#701A3B]">
         <div className="flex items-center gap-2">
           <Gift className="w-4 h-4 text-[#701A3B] shrink-0" />
           <span className="font-serif italic font-semibold">
-            Protocolo de Taller: Todos los productos son envueltos en papel seda y con su respectiva caja ROSSELY.
+            Protocolo de Taller: Empaque oficial con papel seda y caja ROSSELY.
           </span>
         </div>
         <span className="text-[10px] bg-white border border-[#F8D7E0] px-2.5 py-1 rounded-full font-bold uppercase tracking-widest text-[#A24869]">
-          Nuevo Chimbote ➔ Shalom Nacional
+          Nuevo Chimbote ➔ Envíos Nacionales
         </span>
       </div>
 
       {/* Cabecera del Panel */}
       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 border-b border-[#FCE4EC] pb-6">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold tracking-[0.25em] text-[#A24869] uppercase">
-              Dirección de Operaciones
-            </span>
-            <span className="text-[10px] bg-[#FDF5F7] text-[#701A3B] border border-[#F8D7E0] px-2 py-0.5 rounded-md font-mono">
-              Nuevo Chimbote
-            </span>
-          </div>
-          <h1 className="font-serif text-3xl font-black text-[#701A3B] tracking-tight">
-            Panel de Gestión ROSSELY
-          </h1>
+          <span className="text-[10px] font-bold tracking-[0.25em] text-[#A24869] uppercase">Gestión Administrativa</span>
+          <h1 className="font-serif text-3xl font-black text-[#701A3B] tracking-tight">Panel de Operaciones ROSSELY</h1>
         </div>
 
         {/* 7 Pestañas del Panel */}
-        <div className="flex flex-wrap gap-2 p-1.5 bg-[#FDF5F7] border border-[#F8D7E0] rounded-2xl">
+        <div className="flex flex-wrap gap-2 p-1.5 bg-white border border-[#F8D7E0] rounded-2xl shadow-xs">
           <button
             onClick={() => setTabActiva('inventario')}
             className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer flex items-center gap-1.5 ${
@@ -401,7 +450,7 @@ export default function AdminDashboardView() {
               tabActiva === 'pedidos' ? 'bg-[#701A3B] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
             }`}
           >
-            <ShoppingBag className="w-3.5 h-3.5" /> Envíos Shalom ({pedidos.length})
+            <ShoppingBag className="w-3.5 h-3.5" /> Envíos ({pedidos.length})
           </button>
 
           <button
@@ -410,7 +459,7 @@ export default function AdminDashboardView() {
               tabActiva === 'balance' ? 'bg-[#701A3B] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
             }`}
           >
-            <TrendingUp className="w-3.5 h-3.5" /> Balance Contable
+            <TrendingUp className="w-3.5 h-3.5" /> Balance
           </button>
 
           <button
@@ -434,7 +483,7 @@ export default function AdminDashboardView() {
               tabActiva === 'config' ? 'bg-[#701A3B] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
             }`}
           >
-            <Moon className="w-3.5 h-3.5 text-[#A24869]" /> Beneficio Nocturno
+            <Moon className="w-3.5 h-3.5 text-[#A24869]" /> Nocturno
           </button>
 
           <button
@@ -443,21 +492,26 @@ export default function AdminDashboardView() {
               tabActiva === 'vip' ? 'bg-[#701A3B] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
             }`}
           >
-            <Trophy className="w-3.5 h-3.5 text-amber-400" /> Clientes VIP & Metas
+            <Trophy className="w-3.5 h-3.5 text-amber-400" /> VIP & Metas
           </button>
 
           <button
             onClick={() => setTabActiva('suscripciones')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer flex items-center gap-1.5 ${
+            className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer flex items-center gap-1.5 relative ${
               tabActiva === 'suscripciones' ? 'bg-[#701A3B] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
             }`}
           >
-            <Crown className="w-3.5 h-3.5 text-amber-300" /> Plan Premium
+            <Crown className="w-3.5 h-3.5 text-amber-300" /> Suscripciones
+            {pendientesSuscripcionCount > 0 && (
+              <span className="ml-1 bg-amber-400 text-stone-900 text-[10px] font-black px-1.5 py-0.2 rounded-full">
+                {pendientesSuscripcionCount}
+              </span>
+            )}
           </button>
         </div>
       </div>
 
-      {/* PESTAÑA 1: INVENTARIO (Soporta múltiples imágenes y alta capacidad) */}
+      {/* PESTAÑA 1: INVENTARIO */}
       {tabActiva === 'inventario' && (
         <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-10">
           <form onSubmit={handleGuardarProducto} className="lg:col-span-5 bg-white p-7 rounded-3xl border border-[#FCE4EC] shadow-xs space-y-4">
@@ -468,10 +522,10 @@ export default function AdminDashboardView() {
               <input 
                 type="text" 
                 required 
-                placeholder="Pijama Satín Manga Larga Palo Rosa"
+                placeholder="Pijama Satín Afrodita"
                 value={nombre} 
                 onChange={(e) => setNombre(e.target.value)}
-                className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none focus:border-[#701A3B]"
+                className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none focus:border-[#701A3B]"
               />
             </div>
 
@@ -485,7 +539,7 @@ export default function AdminDashboardView() {
                   placeholder="180.00"
                   value={precio} 
                   onChange={(e) => setPrecio(e.target.value)}
-                  className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none focus:border-[#701A3B]"
+                  className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none focus:border-[#701A3B]"
                 />
               </div>
               <div>
@@ -496,16 +550,16 @@ export default function AdminDashboardView() {
                   placeholder="70.00"
                   value={costoUnitario} 
                   onChange={(e) => setCostoUnitario(e.target.value)}
-                  className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none focus:border-[#701A3B]"
+                  className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none focus:border-[#701A3B]"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider mb-1">Stock Taller</label>
+                <label className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider mb-1">Stock</label>
                 <input 
                   type="number" 
                   value={stock} 
                   onChange={(e) => setStock(e.target.value)}
-                  className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none focus:border-[#701A3B]"
+                  className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none focus:border-[#701A3B]"
                 />
               </div>
             </div>
@@ -516,49 +570,44 @@ export default function AdminDashboardView() {
                 <select 
                   value={categoria} 
                   onChange={(e) => setCategoria(e.target.value)}
-                  className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none focus:border-[#701A3B]"
+                  className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none focus:border-[#701A3B]"
                 >
-                  <option value="Pijamas">Pijamas de Satín</option>
-                  <option value="Batas">Batas & Kimonos</option>
-                  <option value="Lencería">Lencería Fina</option>
-                  <option value="Accesorios">Antifaces & Scrunchies</option>
+                  <option value="Pijamas">Pijamas</option>
+                  <option value="Batas">Batas</option>
+                  <option value="Lencería">Lencería</option>
+                  <option value="Accesorios">Accesorios</option>
                 </select>
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider mb-1">Tallas Disponibles</label>
+                <label className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider mb-1">Tallas</label>
                 <input 
                   type="text" 
                   value={tallas} 
                   onChange={(e) => setTallas(e.target.value)}
-                  className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none focus:border-[#701A3B]"
+                  className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none focus:border-[#701A3B]"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider mb-1">Fotografías de la Prenda (Soporta múltiples) *</label>
-              <label className="w-full border-2 border-dashed border-[#F8D7E0] hover:border-[#701A3B] rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-[#FDF5F7]/40 transition">
+              <label className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider mb-1">Fotografías (Soporta Múltiples) *</label>
+              <label className="w-full border-2 border-dashed border-[#F8D7E0] hover:border-[#701A3B] rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-[#FFFBFB] transition">
                 <UploadCloud className="w-6 h-6 text-[#701A3B] mb-1" />
-                <span className="text-xs text-stone-700 font-medium">Subir fotos desde PC o Celular (Múltiples)</span>
-                <span className="text-[10px] text-stone-400">Optimización automática en Canvas (sin Storage)</span>
+                <span className="text-xs text-stone-700 font-medium">Subir fotos desde PC o Celular</span>
                 <input type="file" multiple accept="image/*" onChange={handleSeleccionarImagenesMultiples} className="hidden" />
               </label>
 
-              {cargandoImgs && (
-                <p className="text-[11px] text-[#701A3B] font-bold mt-2 animate-pulse flex items-center gap-1">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Optimizando imágenes...
-                </p>
-              )}
+              {cargandoImgs && <p className="text-[11px] text-[#701A3B] font-bold mt-2 animate-pulse">Optimizando fotos...</p>}
 
               {imagenesPrendas.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {imagenesPrendas.map((imgSrc, idx) => (
-                    <div key={idx} className="relative w-16 h-16 rounded-xl overflow-hidden border border-[#F8D7E0] group">
+                    <div key={idx} className="relative w-16 h-16 rounded-xl overflow-hidden border border-[#F8D7E0]">
                       <img src={imgSrc} alt="Preview" className="w-full h-full object-cover" />
                       <button 
                         type="button"
                         onClick={() => setImagenesPrendas(imagenesPrendas.filter((_, i) => i !== idx))}
-                        className="absolute top-0 right-0 bg-rose-600 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-bl hover:bg-rose-700 cursor-pointer"
+                        className="absolute top-0 right-0 bg-rose-600 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-bl cursor-pointer"
                       >
                         ×
                       </button>
@@ -573,19 +622,12 @@ export default function AdminDashboardView() {
               disabled={guardando || cargandoImgs}
               className="w-full bg-[#701A3B] hover:bg-[#56132D] text-white py-3.5 rounded-xl font-bold uppercase tracking-widest text-xs transition duration-300 flex items-center justify-center gap-2 cursor-pointer shadow-xs disabled:opacity-50"
             >
-              {guardando ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" /> Guardando en Firestore...
-                </>
-              ) : (
-                '✦ Publicar Prenda en Catálogo'
-              )}
+              {guardando ? <Loader2 className="w-4 h-4 animate-spin" /> : '✦ Publicar Prenda en Catálogo'}
             </button>
           </form>
 
           <div className="lg:col-span-7 bg-white p-7 rounded-3xl border border-[#FCE4EC] shadow-xs space-y-4">
-            <h3 className="font-serif text-lg font-bold text-stone-900">Prendas en el Catálogo ({productos.length})</h3>
-            
+            <h3 className="font-serif text-lg font-bold text-stone-900">Catálogo Actual ({productos.length})</h3>
             <div className="space-y-3 max-h-[580px] overflow-y-auto pr-2">
               {productos.map(p => (
                 <div key={p.id} className="flex items-center justify-between p-3.5 rounded-2xl border border-stone-100 bg-[#FFFBFB] hover:border-[#F8D7E0] transition">
@@ -593,18 +635,11 @@ export default function AdminDashboardView() {
                     <img src={p.img} alt={p.nombre} className="w-12 h-14 rounded-lg object-cover border border-stone-200" />
                     <div>
                       <p className="font-bold text-xs text-stone-900">{p.nombre}</p>
-                      <p className="text-[10px] text-stone-400">
-                        {p.categoria} • Stock: {p.stock} • Fotos: {(p.imagenes || [p.img]).length} • Tallas: {p.tallas?.join(', ')}
-                      </p>
+                      <p className="text-[10px] text-stone-400">Stock: {p.stock} • Fotos: {(p.imagenes || [p.img]).length}</p>
                       <p className="text-xs font-semibold text-[#701A3B]">S/. {parseFloat(p.precio || 0).toFixed(2)}</p>
                     </div>
                   </div>
-
-                  <button 
-                    onClick={() => eliminarProducto(p.id)}
-                    className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                    title="Eliminar prenda"
-                  >
+                  <button onClick={() => eliminarProducto(p.id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition cursor-pointer">
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
@@ -614,19 +649,19 @@ export default function AdminDashboardView() {
         </div>
       )}
 
-      {/* PESTAÑA 2: ENTREGAS Y ENVÍOS SHALOM */}
+      {/* PESTAÑA 2: PEDIDOS Y BOTÓN DESPLEGABLE INTERACTIVO */}
       {tabActiva === 'pedidos' && (
         <div className="bg-white p-7 rounded-3xl border border-[#FCE4EC] shadow-xs space-y-4">
           <div className="flex justify-between items-center">
-            <h3 className="font-serif text-lg font-bold text-stone-900">Despachos Nacionales vía Shalom</h3>
+            <h3 className="font-serif text-lg font-bold text-stone-900">Gestión de Pedidos & Envíos (Shalom / Local)</h3>
             <span className="text-xs text-stone-500 font-light flex items-center gap-1">
-              <Truck className="w-4 h-4 text-[#701A3B]" /> Salidas desde Nuevo Chimbote
+              <Truck className="w-4 h-4 text-[#701A3B]" /> Nuevo Chimbote ➔ Todo el Perú
             </span>
           </div>
 
           <div className="space-y-4">
             {pedidos.length === 0 ? (
-              <p className="text-xs text-stone-400 py-10 text-center">No hay pedidos registrados en la plataforma.</p>
+              <p className="text-xs text-stone-400 py-10 text-center">No hay pedidos registrados.</p>
             ) : (
               pedidos.map(p => (
                 <div key={p.id} className="p-5 rounded-2xl border border-[#F8D7E0] bg-[#FFFBFB] space-y-3">
@@ -634,26 +669,25 @@ export default function AdminDashboardView() {
                     <div>
                       <span className="text-xs font-bold text-[#701A3B]">Pedido #{p.id.slice(0, 8)}</span>
                       <p className="text-[11px] text-stone-700 font-medium">
-                        Cliente: {p.cliente?.nombre} • DNI: {p.cliente?.dni} • Tel: {p.cliente?.telefono}
-                      </p>
-                      <p className="text-[10px] text-stone-500 flex items-center gap-1">
-                        <MapPin className="w-3 h-3 text-[#A24869]" /> Destino: {p.cliente?.ciudad} — Shalom: {p.cliente?.agenciaShalom}
+                        Cliente: {p.cliente?.nombre} • Tel: {p.cliente?.telefono} • Destino: {p.cliente?.ciudad} ({p.cliente?.tipoEntrega})
                       </p>
                     </div>
 
                     <div className="flex items-center gap-3">
-                      <span className="text-xs font-bold text-stone-900">Total: S/. {parseFloat(p.total || 0).toFixed(2)}</span>
+                      <span className="text-xs font-bold text-stone-900">S/. {parseFloat(p.total || 0).toFixed(2)}</span>
                       <select
-                        value={p.estado || 'Pendiente'}
+                        value={p.estado || 'Pendiente de Verificación'}
                         onChange={(e) => actualizarEstadoPedido(p.id, e.target.value)}
-                        className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-stone-300 bg-white"
+                        className={`text-xs font-bold px-3 py-1.5 rounded-xl border transition cursor-pointer ${
+                          p.estado === 'Entregado' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-white text-stone-800 border-stone-300'
+                        }`}
                       >
                         <option value="Pendiente de Verificación">Pendiente de Verificación</option>
                         <option value="Pago Verificado">Pago Verificado</option>
                         <option value="En Confección/Empaque">En Confección/Empaque</option>
                         <option value="Dejado en Shalom Chimbote">Dejado en Shalom Chimbote</option>
                         <option value="En Tránsito a Destino">En Tránsito a Destino</option>
-                        <option value="Entregado">Entregado</option>
+                        <option value="Entregado">Entregado (Verde)</option>
                       </select>
                     </div>
                   </div>
@@ -662,19 +696,14 @@ export default function AdminDashboardView() {
                     <div className="space-y-1">
                       {(p.items || []).map((it, idx) => (
                         <p key={idx} className="text-stone-700">
-                          • {it.cantidad || 1}x {it.nombre} (Talla {it.tallaSeleccionada || 'M'}) — S/. {(it.precio * (it.cantidad || 1)).toFixed(2)}
+                          • {it.cantidad || 1}x {it.name || it.nombre} (Talla {it.tallaSeleccionada || 'M'}) — S/. {(it.precio * (it.cantidad || 1)).toFixed(2)}
                         </p>
                       ))}
                     </div>
 
                     {p.comprobanteImg && (
-                      <a 
-                        href={p.comprobanteImg} 
-                        target="_blank" 
-                        rel="noreferrer" 
-                        className="text-xs font-bold text-[#701A3B] underline hover:text-[#56132D]"
-                      >
-                        Ver Captura de Pago Adjunta ↗
+                      <a href={p.comprobanteImg} target="_blank" rel="noreferrer" className="text-xs font-bold text-[#701A3B] underline">
+                        Ver Comprobante de Pago ↗
                       </a>
                     )}
                   </div>
@@ -691,28 +720,17 @@ export default function AdminDashboardView() {
           <div className="bg-white p-6 rounded-3xl border border-[#FCE4EC] shadow-xs flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <Clock className="w-5 h-5 text-[#701A3B]" />
-              <span className="text-xs font-bold text-stone-900 uppercase tracking-wider">Filtrar Periodo:</span>
+              <span className="text-xs font-bold text-stone-900 uppercase tracking-wider">Periodo:</span>
               <div className="flex flex-wrap gap-1.5">
-                {[
-                  { d: 1, label: '1 Día' },
-                  { d: 7, label: '7 Días' },
-                  { d: 14, label: '14 Días' },
-                  { d: 30, label: '30 Días' },
-                  { d: 60, label: '60 Días' },
-                  { d: 90, label: '90 Días' },
-                  { d: 180, label: '180 Días' },
-                  { d: 365, label: '1 Año' },
-                ].map(r => (
+                {[1, 7, 30, 90, 365].map(d => (
                   <button
-                    key={r.d}
-                    onClick={() => setDiasFiltro(r.d)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer border ${
-                      diasFiltro === r.d 
-                        ? 'bg-[#701A3B] text-white border-[#701A3B]' 
-                        : 'bg-[#FDF5F7] text-stone-700 border-[#F8D7E0] hover:border-[#701A3B]'
+                    key={d}
+                    onClick={() => setDiasFiltro(d)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer border ${
+                      diasFiltro === d ? 'bg-[#701A3B] text-white border-[#701A3B]' : 'bg-[#FFFBFB] text-stone-700 border-[#F8D7E0]'
                     }`}
                   >
-                    {r.label}
+                    {d} Días
                   </button>
                 ))}
               </div>
@@ -720,105 +738,65 @@ export default function AdminDashboardView() {
 
             <button
               onClick={exportarBalanceExcel}
-              className="bg-emerald-700 hover:bg-emerald-800 text-white px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition flex items-center gap-2 cursor-pointer shadow-xs"
+              className="bg-emerald-700 hover:bg-emerald-800 text-white px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition flex items-center gap-2 cursor-pointer"
             >
-              <FileSpreadsheet className="w-4 h-4" /> ✦ Exportar Balance Contable a Excel
+              <FileSpreadsheet className="w-4 h-4" /> Exportar a Excel
             </button>
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white p-5 rounded-2xl border border-[#FCE4EC] shadow-xs space-y-1">
-              <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Ingresos Brutos</span>
+              <span className="text-[10px] font-bold text-stone-400 uppercase">Ingresos Brutos</span>
               <p className="text-xl font-bold text-stone-900">S/. {ingresosTotales.toFixed(2)}</p>
-              <span className="text-[10px] text-emerald-600 font-medium">En {diasFiltro} días</span>
             </div>
-
             <div className="bg-white p-5 rounded-2xl border border-[#FCE4EC] shadow-xs space-y-1">
-              <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Costo Mercadería</span>
+              <span className="text-[10px] font-bold text-stone-400 uppercase">Costo Mercadería</span>
               <p className="text-xl font-bold text-stone-700">S/. {costoTotalMercaderia.toFixed(2)}</p>
-              <span className="text-[10px] text-stone-400 font-medium">Insumos y confección</span>
             </div>
-
-            <div className="bg-white p-5 rounded-2xl border border-[#FCE4EC] shadow-xs space-y-1 bg-gradient-to-br from-[#FFFBFB] to-[#FDF5F7]">
-              <span className="text-[10px] font-bold text-[#701A3B] uppercase tracking-wider">Utilidad Neta Real</span>
+            <div className="bg-white p-5 rounded-2xl border border-[#FCE4EC] shadow-xs space-y-1 bg-[#FDF5F7]">
+              <span className="text-[10px] font-bold text-[#701A3B] uppercase">Utilidad Neta Real</span>
               <p className="text-xl font-black text-[#701A3B]">S/. {gananciaNetaReal.toFixed(2)}</p>
-              <span className="text-[10px] text-[#A24869] font-medium">Margen estimado: {margenUtilidad}%</span>
             </div>
-
             <div className="bg-white p-5 rounded-2xl border border-[#FCE4EC] shadow-xs space-y-1">
-              <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Prendas Despachadas</span>
+              <span className="text-[10px] font-bold text-stone-400 uppercase">Prendas Vendidas</span>
               <p className="text-xl font-bold text-stone-900">{unidadesVendidas}</p>
-              <span className="text-[10px] text-stone-400 font-medium">Unidades vendidas</span>
-            </div>
-
-            <div className="bg-white p-5 rounded-2xl border border-[#FCE4EC] shadow-xs space-y-1">
-              <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Ticket Promedio</span>
-              <p className="text-xl font-bold text-stone-900">
-                S/. {pedidosFiltrados.length > 0 ? (ingresosTotales / pedidosFiltrados.length).toFixed(2) : '0.00'}
-              </p>
-              <span className="text-[10px] text-stone-400 font-medium">Por compra</span>
             </div>
           </div>
         </div>
       )}
 
-      {/* PESTAÑA 4: CENTRO DE ASESORÍA Y MENSAJERÍA EN VIVO (MESSENGER STYLE) */}
+      {/* PESTAÑA 4: CHAT EN TIEMPO REAL (MESSENGER / WHATSAPP STYLE) */}
       {tabActiva === 'mensajes' && (
         <div className="bg-white rounded-3xl border border-[#FCE4EC] shadow-sm overflow-hidden h-[620px] grid grid-cols-1 md:grid-cols-12">
-          
           <div className="md:col-span-4 border-r border-[#FCE4EC] flex flex-col h-full bg-[#FFFBFB]">
             <div className="p-4 border-b border-[#FCE4EC] bg-white flex items-center justify-between">
-              <div>
-                <h3 className="font-serif text-sm font-bold text-stone-900">Bandeja de Asesoría</h3>
-                <p className="text-[10px] text-stone-400">Consultas de clientas en vivo</p>
-              </div>
+              <h3 className="font-serif text-sm font-bold text-stone-900">Bandeja de Asesoría</h3>
               <span className="bg-[#FDF5F7] text-[#701A3B] border border-[#F8D7E0] text-[10px] font-bold px-2 py-0.5 rounded-full">
-                {chats.length} chats
+                {chats.length}
               </span>
             </div>
 
             <div className="flex-1 overflow-y-auto divide-y divide-stone-100">
-              {chats.length === 0 ? (
-                <div className="p-8 text-center text-xs text-stone-400">
-                  No hay conversaciones activas en este momento.
-                </div>
-              ) : (
-                chats.map((c) => {
-                  const seleccionado = chatSeleccionado?.id === c.id;
-                  return (
-                    <div
-                      key={c.id}
-                      onClick={() => setChatSeleccionado(c)}
-                      className={`p-4 cursor-pointer transition flex items-start gap-3 ${
-                        seleccionado 
-                          ? 'bg-[#FDF5F7] border-l-4 border-[#701A3B]' 
-                          : 'hover:bg-white'
-                      }`}
-                    >
-                      <div className="w-10 h-10 rounded-full bg-[#FCE4EC] border border-[#F8D7E0] flex items-center justify-center text-[#701A3B] shrink-0 font-serif font-bold text-sm">
-                        {c.clienteNombre ? c.clienteNombre.charAt(0).toUpperCase() : 'C'}
-                      </div>
-                      
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-0.5">
-                          <p className="text-xs font-bold text-stone-900 truncate">
-                            {c.clienteNombre}
-                          </p>
-                          {c.noLeidoPorAdmin && (
-                            <span className="w-2 h-2 rounded-full bg-[#701A3B]" />
-                          )}
-                        </div>
-                        <p className="text-[11px] text-stone-500 truncate font-light">
-                          {c.ultimoMensaje || 'Nueva solicitud de asesoría'}
-                        </p>
-                        <span className="text-[9px] text-stone-400 block mt-1">
-                          {c.clienteEmail}
-                        </span>
-                      </div>
+              {chats.map((c) => (
+                <div
+                  key={c.id}
+                  onClick={() => setChatSeleccionado(c)}
+                  className={`p-4 cursor-pointer transition flex items-start gap-3 ${
+                    chatSeleccionado?.id === c.id ? 'bg-[#FDF5F7] border-l-4 border-[#701A3B]' : 'hover:bg-white'
+                  }`}
+                >
+                  <div className="w-10 h-10 rounded-full bg-[#FCE4EC] text-[#701A3B] flex items-center justify-center font-bold text-sm">
+                    {c.clienteNombre?.charAt(0).toUpperCase() || 'C'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-bold text-stone-900 truncate">{c.clienteNombre}</p>
+                      {c.noLeidoPorAdmin && <span className="w-2 h-2 rounded-full bg-[#701A3B]" />}
                     </div>
-                  );
-                })
-              )}
+                    <p className="text-[11px] text-stone-500 truncate">{c.ultimoMensaje || 'Nuevo mensaje'}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -826,220 +804,75 @@ export default function AdminDashboardView() {
             {chatSeleccionado ? (
               <>
                 <div className="p-4 bg-white border-b border-[#FCE4EC] flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-[#701A3B] text-white flex items-center justify-center font-bold text-xs font-serif">
-                      {chatSeleccionado.clienteNombre?.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-stone-900">
-                        {chatSeleccionado.clienteNombre}
-                      </h4>
-                      <p className="text-[10px] text-[#A24869]">
-                        {chatSeleccionado.clienteEmail} • Nuevo Chimbote
-                      </p>
-                    </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-stone-900">{chatSeleccionado.clienteNombre}</h4>
+                    <p className="text-[10px] text-[#A24869]">{chatSeleccionado.clienteEmail}</p>
                   </div>
-
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full font-semibold">
-                    En Atención
-                  </span>
                 </div>
 
                 <div className="flex-1 p-5 overflow-y-auto space-y-3">
-                  {mensajesChat.length === 0 ? (
-                    <div className="text-center py-10 text-xs text-stone-400">
-                      Iniciando canal de comunicación...
-                    </div>
-                  ) : (
-                    mensajesChat.map((m) => {
-                      const esAdminMsg = m.remitente === 'admin';
-                      const esSistema = m.remitente === 'sistema';
-
-                      if (esSistema) {
-                        return (
-                          <div key={m.id} className="text-center my-2">
-                            <span className="text-[10px] bg-stone-100 text-stone-500 px-3 py-1 rounded-full">
-                              {m.texto}
-                            </span>
-                          </div>
-                        );
-                      }
-
-                      return (
-                        <div
-                          key={m.id}
-                          className={`flex flex-col ${esAdminMsg ? 'items-end' : 'items-start'}`}
-                        >
-                          <span className="text-[9px] text-stone-400 px-1 mb-0.5">
-                            {esAdminMsg ? 'Administradora ROSSELY' : chatSeleccionado.clienteNombre}
-                          </span>
-                          <div
-                            className={`max-w-[75%] p-3.5 rounded-2xl text-xs leading-relaxed ${
-                              esAdminMsg
-                                ? 'bg-[#701A3B] text-white rounded-br-xs shadow-xs'
-                                : 'bg-white text-stone-800 border border-[#F8D7E0] rounded-bl-xs shadow-xs'
-                            }`}
-                          >
-                            {m.texto}
-                          </div>
+                  {mensajesChat.map((m) => {
+                    const esAdmin = m.remitente === 'admin';
+                    return (
+                      <div key={m.id} className={`flex flex-col ${esAdmin ? 'items-end' : 'items-start'}`}>
+                        <div className={`max-w-[75%] p-3.5 rounded-2xl text-xs leading-relaxed ${
+                          esAdmin ? 'bg-[#701A3B] text-white rounded-br-xs' : 'bg-white text-stone-800 border border-[#F8D7E0] rounded-bl-xs'
+                        }`}>
+                          {m.texto}
                         </div>
-                      );
-                    })
-                  )}
+                      </div>
+                    );
+                  })}
                   <div ref={scrollChatRef} />
                 </div>
 
-                <form onSubmit={handleEnviarRespuestaAdmin} className="p-3.5 bg-white border-t border-[#FCE4EC] flex items-center gap-2">
+                <form onSubmit={handleEnviarRespuestaAdmin} className="p-3.5 bg-white border-t border-[#FCE4EC] flex gap-2">
                   <input
                     type="text"
                     value={respuestaAdmin}
                     onChange={(e) => setRespuestaAdmin(e.target.value)}
-                    placeholder="Escribe una respuesta a la clienta..."
-                    className="flex-1 bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none focus:border-[#701A3B] text-stone-800"
+                    placeholder="Escribe una respuesta inmediata..."
+                    className="flex-1 bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none focus:border-[#701A3B]"
                   />
-                  <button
-                    type="submit"
-                    disabled={enviandoRespuesta || !respuestaAdmin.trim()}
-                    className="bg-[#701A3B] hover:bg-[#56132D] text-white px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Responder</span>
+                  <button type="submit" disabled={!respuestaAdmin.trim()} className="bg-[#701A3B] text-white px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer">
+                    <Send className="w-3.5 h-3.5" /> Enviar
                   </button>
                 </form>
               </>
             ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-stone-400 text-xs space-y-2">
-                <MessageSquare className="w-10 h-10 text-[#F8D7E0]" />
-                <p>Selecciona una conversación de la lista para responder.</p>
+              <div className="flex-1 flex items-center justify-center text-stone-400 text-xs">
+                Selecciona una conversación para responder al instante.
               </div>
             )}
           </div>
-
         </div>
       )}
 
-      {/* PESTAÑA 5: GESTIÓN DE EXPERIENCIA NOCTURNA Y BENEFICIOS */}
+      {/* PESTAÑA 5: CONFIGURACIÓN NOCTURNA */}
       {tabActiva === 'config' && (
         <div className="bg-white p-8 rounded-3xl border border-[#FCE4EC] shadow-xs max-w-2xl space-y-6">
-          <div className="border-b border-stone-100 pb-4">
-            <div className="flex items-center gap-2">
-              <Moon className="w-5 h-5 text-[#701A3B]" />
-              <h3 className="font-serif text-lg font-bold text-stone-900">Control del Banner Nocturno</h3>
-            </div>
-            <p className="text-xs text-stone-500 font-light mt-1">
-              Personaliza el mensaje y cupón que ven exclusivamente las clientas que han iniciado sesión.
-            </p>
-          </div>
-
-          <form onSubmit={handleGuardarConfigNocturna} className="space-y-4 text-xs">
-            <div className="flex items-center justify-between p-4 bg-[#FDF5F7] border border-[#F8D7E0] rounded-2xl">
-              <div>
-                <p className="font-bold text-stone-800">Banner Nocturno Activo</p>
-                <p className="text-[10px] text-stone-500 font-light">
-                  Si se desactiva, no se mostrará a ninguna clienta en la tienda.
-                </p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={configNocturna.activo}
-                  onChange={(e) => setConfigNocturna({ ...configNocturna, activo: e.target.checked })}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-stone-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#701A3B]"></div>
-              </label>
-            </div>
-
+          <h3 className="font-serif text-lg font-bold text-stone-900">Control de Experiencia Nocturna</h3>
+          <form onSubmit={async (e) => {
+            e.preventDefault();
+            setGuardandoConfig(true);
+            await setDoc(doc(db, 'configuracion', 'experiencia_nocturna'), configNocturna, { merge: true });
+            setGuardandoConfig(false);
+            mostrarToast("✦ Configuración nocturna guardada.");
+          }} className="space-y-4 text-xs">
             <div>
-              <label className="block text-[11px] font-bold text-stone-700 uppercase tracking-wider mb-1">
-                Mensaje de Noche *
-              </label>
-              <input
-                type="text"
-                required
-                value={configNocturna.mensaje}
-                onChange={(e) => setConfigNocturna({ ...configNocturna, mensaje: e.target.value })}
-                placeholder="Ej. El confort de la seda te espera esta noche..."
-                className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none focus:border-[#701A3B]"
-              />
+              <label className="block font-bold mb-1">Mensaje Nocturno</label>
+              <input type="text" value={configNocturna.mensaje} onChange={(ev)=>setConfigNocturna({...configNocturna, mensaje: ev.target.value})} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl p-3" />
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-[11px] font-bold text-stone-700 uppercase tracking-wider mb-1">
-                  Texto del Botón *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={configNocturna.textoBoton}
-                  onChange={(e) => setConfigNocturna({ ...configNocturna, textoBoton: e.target.value })}
-                  placeholder="Ej. + BENEFICIO"
-                  className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none focus:border-[#701A3B]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-stone-700 uppercase tracking-wider mb-1">
-                  Código de Cupón a Copiar *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={configNocturna.codigoDescuento}
-                  onChange={(e) => setConfigNocturna({ ...configNocturna, codigoDescuento: e.target.value.toUpperCase() })}
-                  placeholder="Ej. SEDA-NOCHE"
-                  className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs font-mono outline-none focus:border-[#701A3B]"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-[11px] font-bold text-stone-700 uppercase tracking-wider mb-1">
-                  Hora Inicio (0-23 hrs)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="23"
-                  value={configNocturna.horaInicio}
-                  onChange={(e) => setConfigNocturna({ ...configNocturna, horaInicio: e.target.value })}
-                  className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-4 py-2 text-xs outline-none focus:border-[#701A3B]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-stone-700 uppercase tracking-wider mb-1">
-                  Hora Fin (0-23 hrs)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="23"
-                  value={configNocturna.horaFin}
-                  onChange={(e) => setConfigNocturna({ ...configNocturna, horaFin: e.target.value })}
-                  className="w-full bg-[#FDF5F7] border border-[#F8D7E0] rounded-xl px-4 py-2 text-xs outline-none focus:border-[#701A3B]"
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={guardandoConfig}
-              className="w-full bg-[#701A3B] hover:bg-[#56132D] text-white py-3.5 rounded-xl font-bold uppercase tracking-widest text-xs transition duration-300 flex items-center justify-center gap-2 cursor-pointer shadow-xs disabled:opacity-50 mt-2"
-            >
-              {guardandoConfig ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              <span>Guardar Configuración en Firestore</span>
+            <button type="submit" disabled={guardandoConfig} className="bg-[#701A3B] text-white px-6 py-3 rounded-xl font-bold uppercase tracking-wider cursor-pointer">
+              Guardar Configuración
             </button>
           </form>
         </div>
       )}
 
-      {/* PESTAÑA 6: CLIENTES VIP & CADUCIDAD SEMANAL DE RULETAS */}
+      {/* PESTAÑA 6: CLIENTES VIP & METAS */}
       {tabActiva === 'vip' && (() => {
         const resumenClientes = {};
-
         pedidos.forEach(p => {
           const email = p.cliente?.email || p.cliente?.correo || 'visitante@rossely.pe';
           const nombre = p.cliente?.nombre || 'Cliente ROSSELY';
@@ -1055,7 +888,6 @@ export default function AdminDashboardView() {
               pedidosCliente: []
             };
           }
-
           resumenClientes[email].gastoTotal += totalPedido;
           resumenClientes[email].pedidosCliente.push(p);
         });
@@ -1069,94 +901,76 @@ export default function AdminDashboardView() {
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 bg-white p-6 rounded-3xl border border-[#FCE4EC] shadow-xs">
               <div>
-                <h3 className="font-serif text-lg font-bold text-stone-900">Métricas de Consumo y Niveles Temporales (7 Días)</h3>
+                <h3 className="font-serif text-lg font-bold text-stone-900">Métricas de Consumo y Niveles (VIP / Golden)</h3>
                 <p className="text-xs text-stone-500 font-light">
-                  El estatus y tiros de ruleta expiran automáticamente si no se mantiene el ritmo de compra semanal (Gold $\ge$ S/. 1,000 | Seda $\ge$ S/. 500).
+                  Control semanal automático (VIP: S/. 500 - S/. 999 | Golden: S/. 1,000 a más).
                 </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] bg-amber-50 text-amber-800 border border-amber-200 px-3 py-1 rounded-full font-bold uppercase tracking-wider">
-                  {listaVIP.filter(c => c.activo).length} Activos esta semana
-                </span>
               </div>
             </div>
 
             <div className="bg-white rounded-3xl border border-[#FCE4EC] shadow-xs overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-[#FFF5F7] border-b border-[#F8D7E0] text-[#701A3B] uppercase text-[10px] font-bold tracking-wider">
-                    <tr>
-                      <th className="py-4 px-6">Clienta</th>
-                      <th className="py-4 px-4">Destino Shalom</th>
-                      <th className="py-4 px-4">Gasto Total Histórico</th>
-                      <th className="py-4 px-4">Gasto Últimos 7 Días</th>
-                      <th className="py-4 px-4">Estatus de Ruleta (Vigencia 1 Semana)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-100">
-                    {listaVIP.length === 0 ? (
-                      <tr>
-                        <td colSpan="5" className="py-8 text-center text-stone-400">
-                          Aún no hay compras registradas para tabular consumos.
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[#FFF5F7] border-b border-[#F8D7E0] text-[#701A3B] uppercase text-[10px] font-bold tracking-wider">
+                  <tr>
+                    <th className="py-4 px-6">Clienta</th>
+                    <th className="py-4 px-4">Destino</th>
+                    <th className="py-4 px-4">Gasto Total</th>
+                    <th className="py-4 px-4">Estatus Ruleta</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100">
+                  {listaVIP.length === 0 ? (
+                    <tr><td colSpan="4" className="py-8 text-center text-stone-400">Sin consumos tabulados.</td></tr>
+                  ) : (
+                    listaVIP.map((c, i) => (
+                      <tr key={i} className="hover:bg-[#FFFBFB] transition">
+                        <td className="py-4 px-6 font-bold">{c.nombre} <span className="block text-[10px] text-stone-400">{c.email}</span></td>
+                        <td className="py-4 px-4">{c.ciudad}</td>
+                        <td className="py-4 px-4 font-bold">S/. {c.gastoTotal.toFixed(2)}</td>
+                        <td className="py-4 px-4">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${c.nivel === 'Gold VIP' ? 'bg-[#1C1819] text-[#D4AF37]' : 'bg-[#FDF5F7] text-[#701A3B]'}`}>
+                            {c.nivel}
+                          </span>
                         </td>
                       </tr>
-                    ) : (
-                      listaVIP.map((c, i) => (
-                        <tr key={i} className="hover:bg-[#FFFBFB] transition">
-                          <td className="py-4 px-6">
-                            <p className="font-bold text-stone-900">{c.nombre}</p>
-                            <p className="text-[10px] text-stone-400">{c.email} • Tel: {c.telefono}</p>
-                          </td>
-                          <td className="py-4 px-4 font-medium text-stone-700">{c.ciudad}</td>
-                          <td className="py-4 px-4 font-bold text-stone-900">S/. {c.gastoTotal.toFixed(2)}</td>
-                          <td className="py-4 px-4 font-bold text-[#701A3B]">S/. {c.gastoSemanal.toFixed(2)}</td>
-                          <td className="py-4 px-4">
-                            {c.nivel === 'Gold VIP' ? (
-                              <span className="bg-[#1C1819] text-[#D4AF37] border border-[#D4AF37] text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider inline-flex items-center gap-1">
-                                <Trophy className="w-3 h-3 text-[#D4AF37]" /> Gold VIP Vigente (1 Tiro)
-                              </span>
-                            ) : c.nivel === 'Plata / Seda' ? (
-                              <span className="bg-[#FDF5F7] text-[#701A3B] border border-[#F8D7E0] text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider inline-flex items-center gap-1">
-                                <Sparkles className="w-3 h-3 text-[#701A3B]" /> Seda Vigente (1 Tiro)
-                              </span>
-                            ) : (
-                              <span className="bg-stone-100 text-stone-500 text-[10px] font-semibold px-2.5 py-1 rounded-md">
-                                Expirado / Plan Gratis (Sin tiro activo)
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         );
       })()}
 
-      {/* PESTAÑA 7: GESTIÓN DE SUSCRIPTORAS PREMIUM Y PUNTOS */}
+      {/* PESTAÑA 7: VALIDACIÓN DE SUSCRIPCIONES (S/. 60) */}
       {tabActiva === 'suscripciones' && (
-        <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 bg-white p-6 rounded-3xl border border-[#FCE4EC] shadow-xs">
-            <div>
-              <h3 className="font-serif text-lg font-bold text-stone-900">Auditoría de Suscripciones Premium (S/. 60/mes)</h3>
-              <p className="text-xs text-stone-500 font-light">
-                Control de vigencia a 30 días, renovación automática y puntos canjeables (8 pts = S/. 1.00).
-              </p>
-            </div>
-            <span className="text-[10px] bg-[#1C1819] text-[#D4AF37] border border-[#D4AF37] px-3 py-1 rounded-full font-bold uppercase tracking-wider">
-              Sello: Papel Seda & Caja ROSSELY
-            </span>
-          </div>
-
-          <div className="bg-white rounded-3xl border border-[#FCE4EC] shadow-xs p-8 text-center text-xs text-stone-600 space-y-2">
-            <Crown className="w-10 h-10 text-[#D4AF37] mx-auto mb-2" />
-            <p className="font-serif text-base font-bold text-[#701A3B]">Módulo de Suscriptoras Activas</p>
-            <p className="max-w-md mx-auto font-light">
-              Las clientas afiliadas al Plan Premium se actualizan en tiempo real. Al cumplirse los 30 días sin renovación de pago, el sistema las baja de rango al Plan Free.
-            </p>
+        <div className="bg-white p-8 rounded-3xl border border-[#FCE4EC] shadow-xs space-y-6">
+          <h3 className="font-serif text-lg font-bold text-stone-900">Validación de Pagos de Suscripción (S/. 60.00)</h3>
+          <div className="space-y-4">
+            {suscripcionesPendientes.length === 0 ? (
+              <p className="text-xs text-stone-400 py-6 text-center">No hay solicitudes de suscripción pendientes.</p>
+            ) : (
+              suscripcionesPendientes.map(sub => (
+                <div key={sub.id} className="p-4 rounded-2xl border border-[#F8D7E0] bg-[#FFFBFB] flex flex-wrap items-center justify-between gap-4 text-xs">
+                  <div>
+                    <p className="font-bold text-[#701A3B]">{sub.nombre} ({sub.email})</p>
+                    <p className="text-stone-600">Nº de Operación Yape/Plin: <strong className="font-mono">{sub.numeroOperacion}</strong></p>
+                    <p className="text-[10px] text-stone-400">Monto: S/. {sub.monto.toFixed(2)}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`px-3 py-1 rounded-full font-bold text-[10px] ${sub.estado === 'Verificado' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+                      {sub.estado === 'Verificado' ? '✓ Verificado (Check Verde)' : '✕ Por Verificar (X Roja)'}
+                    </span>
+                    <button
+                      onClick={() => handleVerificarSuscripcionAdmin(sub.id, sub.uid, sub.estado === 'Verificado' ? 'Por Verificar' : 'Verificado')}
+                      className="bg-[#701A3B] text-white px-4 py-2 rounded-xl font-bold uppercase tracking-wider cursor-pointer"
+                    >
+                      {sub.estado === 'Verificado' ? 'Cambiar a Pendiente' : 'Aprobar y Verificar'}
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       )}
