@@ -13,7 +13,8 @@ import {
   orderBy, 
   serverTimestamp 
 } from 'firebase/firestore';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 import { 
   Package, 
   ShoppingBag, 
@@ -34,10 +35,7 @@ import {
   Sparkles,
   Trophy,
   Crown,
-  Bell,
-  Phone,
-  CheckCheck,
-  XCircle
+  Bell
 } from 'lucide-react';
 
 // Compresión Canvas integrada localmente para múltiples imágenes y alta eficiencia
@@ -99,7 +97,7 @@ export default function AdminDashboardView() {
   const [cargandoImgs, setCargandoImgs] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
 
-  // Selector temporal para Balance Contable
+  // 15 Rangos Temporales Obligatorios para Balance Contable
   const [diasFiltro, setDiasFiltro] = useState(30);
 
   // Estados para el Centro de Mensajería en Tiempo Real (Messenger / WhatsApp style)
@@ -136,7 +134,7 @@ export default function AdminDashboardView() {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // Nota Re5
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime);
       gain.gain.setValueAtTime(0.15, ctx.currentTime);
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -176,7 +174,7 @@ export default function AdminDashboardView() {
     return () => unsub();
   }, []);
 
-  // 3. Suscripción a Solicitudes de Suscripción Pendientes con Alarma
+  // 3. Suscripción a Solicitudes de Suscripción con Alarma
   useEffect(() => {
     const q = query(collection(db, 'suscripciones_pendientes'), orderBy('createdAt', 'desc'));
     const unsub = onSnapshot(q, (snap) => {
@@ -194,28 +192,18 @@ export default function AdminDashboardView() {
   // 4. Suscripción a mensajes del chat activo seleccionado
   useEffect(() => {
     if (!chatSeleccionado?.id) return;
-
-    const q = query(
-      collection(db, 'chats', chatSeleccionado.id, 'mensajes'),
-      orderBy('timestamp', 'asc')
-    );
-
+    const q = query(collection(db, 'chats', chatSeleccionado.id, 'mensajes'), orderBy('timestamp', 'asc'));
     const unsub = onSnapshot(q, (snap) => {
       setMensajesChat(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       scrollChatRef.current?.scrollIntoView({ behavior: 'smooth' });
     });
-
-    updateDoc(doc(db, 'chats', chatSeleccionado.id), {
-      noLeidoPorAdmin: false
-    }).catch(() => {});
-
+    updateDoc(doc(db, 'chats', chatSeleccionado.id), { noLeidoPorAdmin: false }).catch(() => {});
     return () => unsub();
   }, [chatSeleccionado?.id]);
 
   const handleEnviarRespuestaAdmin = async (e) => {
     e.preventDefault();
     if (!respuestaAdmin.trim() || !chatSeleccionado?.id) return;
-
     const texto = respuestaAdmin.trim();
     setRespuestaAdmin('');
     setEnviandoRespuesta(true);
@@ -226,7 +214,6 @@ export default function AdminDashboardView() {
         texto,
         timestamp: serverTimestamp()
       });
-
       await updateDoc(doc(db, 'chats', chatSeleccionado.id), {
         ultimoMensaje: `Asesora: ${texto}`,
         ultimaFecha: serverTimestamp(),
@@ -242,20 +229,13 @@ export default function AdminDashboardView() {
 
   const handleVerificarSuscripcionAdmin = async (suscripcionId, userId, nuevoEstado) => {
     try {
-      await updateDoc(doc(db, 'suscripciones_pendientes', suscripcionId), {
-        estado: nuevoEstado
-      });
-
+      await updateDoc(doc(db, 'suscripciones_pendientes', suscripcionId), { estado: nuevoEstado });
       if (nuevoEstado === 'Verificado') {
         const fechaExp = new Date();
-        fechaExp.setDate(fechaExp.getDate() + 30); // 30 días de vigencia
-
+        fechaExp.setDate(fechaExp.getDate() + 30);
         await updateDoc(doc(db, 'usuarios', userId), {
-          suscripcion: {
-            tipo: 'premium',
-            fechaExpiracion: fechaExp.toISOString()
-          },
-          puntos: 50 // Bono inicial al verificar membresía
+          suscripcion: { tipo: 'premium', fechaExpiracion: fechaExp.toISOString() },
+          puntos: 50
         });
         mostrarToast("✦ Suscripción verificada y activada correctamente.");
       }
@@ -268,12 +248,11 @@ export default function AdminDashboardView() {
   const handleSeleccionarImagenesMultiples = async (e) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-
     setCargandoImgs(true);
     try {
       const urlsOptimizadas = await optimizarMultiplesImagenesCanvas(files, 1100, 0.75);
       setImagenesPrendas(prev => [...prev, ...urlsOptimizadas]);
-      mostrarToast(`✦ ${urlsOptimizadas.length} imagen(es) optimizada(s) con éxito.`);
+      mostrarToast(`✦ ${urlsOptimizadas.length} imagen(es) optimizada(s).`);
     } catch (err) {
       console.error(err);
       alert("Error al comprimir las imágenes.");
@@ -288,7 +267,6 @@ export default function AdminDashboardView() {
       alert("Por favor completa el nombre, precio y sube al menos una fotografía.");
       return;
     }
-
     setGuardando(true);
     try {
       await addDoc(collection(db, 'productos'), {
@@ -304,14 +282,8 @@ export default function AdminDashboardView() {
         origen: 'Taller Nuevo Chimbote',
         createdAt: serverTimestamp()
       });
-
       mostrarToast("✦ Prenda publicada exitosamente.");
-      setNombre('');
-      setPrecio('');
-      setCostoUnitario('');
-      setStock('12');
-      setDescripcion('');
-      setImagenesPrendas([]);
+      setNombre(''); setPrecio(''); setCostoUnitario(''); setStock('12'); setDescripcion(''); setImagenesPrendas([]);
     } catch (err) {
       console.error(err);
       alert("Error al guardar la prenda.");
@@ -320,12 +292,13 @@ export default function AdminDashboardView() {
     }
   };
 
-  // Cálculos Financieros del Balance Contable
+  // Filtrado de pedidos según los 15 rangos temporales
   const ahora = new Date();
   const pedidosFiltrados = pedidos.filter(p => {
     if (!p.createdAt && !p.fecha) return true;
-    const fechaP = p.createdAt?.toDate ? p.createdAt.toDate() : new Date();
+    const fechaP = p.createdAt?.toDate ? p.createdAt.toDate() : new Date(p.fecha || ahora);
     const difDias = (ahora - fechaP) / (1000 * 60 * 60 * 24);
+    if (diasFiltro === 9999) return true; // Histórico Total
     return difDias <= diasFiltro;
   });
 
@@ -344,32 +317,184 @@ export default function AdminDashboardView() {
     return acc + (p.items || []).reduce((iAcc, it) => iAcc + (it.cantidad || 1), 0);
   }, 0);
 
-  const exportarBalanceExcel = () => {
-    const filas = [];
+  // Motor de Exportación ExcelJS de Grado Gerencial
+  const exportarBalanceExcelJS = async () => {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Atelier ROSSELY Enterprise';
+    workbook.created = new Date();
+    
+    const worksheet = workbook.addWorksheet('Balance Financiero');
+    worksheet.views = [{ showGridLines: true }];
+
+    // 1. Fila 1: Encabezado Institucional
+    worksheet.mergeCells('A1:K1');
+    const titleCell = worksheet.getCell('A1');
+    titleCell.value = 'ATELIER ROSSELY — BALANCE FINANCIERO Y CONTROL DE OPERACIONES';
+    titleCell.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FFFFFFFF' } };
+    titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF701A3B' } };
+    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    worksheet.getRow(1).height = 40;
+
+    // 2. Fila 2: Metadatos de Conciliación
+    worksheet.mergeCells('A2:K2');
+    const subCell = worksheet.getCell('A2');
+    const nombresRangos = {
+      1: '1 Día (Hoy)', 7: '7 Días (1 Semana)', 14: '14 Días (Quincena)', 30: '1 Mes (30 Días)',
+      60: '2 Meses', 90: '3 Meses (Trimestre)', 120: '4 Meses', 150: '5 Meses', 180: '6 Meses (Semestre)',
+      210: '7 Meses', 240: '8 Meses', 270: '9 Meses', 300: '10 Meses', 365: '1 Año (365 Días)', 9999: 'Histórico Total'
+    };
+    subCell.value = `Período Auditado: ${nombresRangos[diasFiltro] || 'Personalizado'} | Emisión: ${new Date().toLocaleString('es-PE')} | Sede: Taller Nuevo Chimbote | Moneda: Soles (S/)`;
+    subCell.font = { name: 'Arial', size: 9.5, italic: true, color: { argb: 'FF334155' } };
+    subCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+    subCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    worksheet.getRow(2).height = 22;
+
+    // Fila 3: Vacía
+    worksheet.getRow(3).height = 10;
+
+    // 3. Fila 4: Cabecera de Tabla
+    const headers = [
+      'N° PEDIDO', 'FECHA / HORA', 'CLIENTE', 'CORREO', 'DESTINO / AGENCIA',
+      'DETALLE DE PRENDAS DE SEDA', 'CANT.', 'TOTAL VENTA (S/)', 'COSTO TALLER (S/)', 'UTILIDAD NETA (S/)', 'ESTADO'
+    ];
+    const headerRow = worksheet.getRow(4);
+    headerRow.values = headers;
+    headerRow.height = 28;
+    headerRow.eachCell((cell) => {
+      cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF701A3B' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.border = {
+        top: { style: 'medium', color: { argb: 'FFCBD5E1' } },
+        left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        bottom: { style: 'medium', color: { argb: 'FFCBD5E1' } },
+        right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+      };
+    });
+
+    // 4. Cuerpo de Registros
+    let rowIndex = 5;
     pedidosFiltrados.forEach(p => {
-      const fechaTxt = p.createdAt?.toDate ? p.createdAt.toDate().toLocaleDateString('es-PE') : 'Reciente';
+      const fechaTxt = p.createdAt?.toDate ? p.createdAt.toDate().toLocaleString('es-PE') : (p.fecha || 'Reciente');
+      const clienteNom = p.cliente?.nombre || 'Cliente Web';
+      const clienteEmail = p.cliente?.email || 'Sin correo';
+      const destinoTxt = `${p.cliente?.ciudad || 'Chimbote'} - ${p.cliente?.tipoEnvio || 'Shalom'}`;
+      const estadoTxt = p.estado || 'Pendiente de Verificación';
+
       (p.items || []).forEach(item => {
         const cU = item.costoUnitario || (parseFloat(item.precio || 0) * 0.4);
         const pV = parseFloat(item.precio || 0);
         const q = item.cantidad || 1;
-        filas.push({
-          "Fecha": fechaTxt,
-          "ID Pedido": p.id.slice(0, 8),
-          "Cliente": p.cliente?.nombre || 'Venta Web',
-          "Destino": `${p.cliente?.ciudad || 'Destino'} - ${p.cliente?.tipoEntrega || 'Shalom'}`,
-          "Prenda": item.name || item.nombre,
-          "Cantidad": q,
-          "Ingreso (S/.)": (pV * q).toFixed(2),
-          "Ganancia (S/.)": ((pV - cU) * q).toFixed(2),
-          "Estado": p.estado || 'Pendiente'
+        const descItem = `${item.name || item.nombre} (Talla ${item.tallaSeleccionada || 'M'})`;
+
+        const row = worksheet.getRow(rowIndex);
+        row.values = [
+          p.id.slice(0, 8),
+          fechaTxt,
+          clienteNom,
+          clienteEmail,
+          destinoTxt,
+          descItem,
+          q,
+          pV * q,
+          cU * q,
+          { formula: `H${rowIndex}-I${rowIndex}` },
+          estadoTxt
+        ];
+
+        row.height = 22;
+        const isEven = rowIndex % 2 === 0;
+        const rowBg = isEven ? 'FFF8FAFC' : 'FFFFFFFF';
+
+        row.eachCell((cell, colNumber) => {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+            left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+            bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+            right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+          };
+          cell.font = { name: 'Arial', size: 9.5 };
+
+          // Alineaciones y Formatos Específicos por Columna
+          if (colNumber === 1 || colNumber === 2) {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          } else if (colNumber === 6) {
+            cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+          } else if (colNumber === 7) {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.numFmt = '#,##0';
+          } else if (colNumber >= 8 && colNumber <= 10) {
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.numFmt = '"S/ "#,##0.00;[Red]-"S/ "#,##0.00;"S/ "0.00';
+          } else if (colNumber === 11) {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.font = { name: 'Arial', size: 9.5, bold: true };
+            if (estadoTxt === 'Entregado') {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
+              cell.font = { color: { argb: 'FF15803D' }, bold: true };
+            } else if (estadoTxt.includes('Verificado') || estadoTxt.includes('Pagado')) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEF2FF' } };
+              cell.font = { color: { argb: 'FF4F46E5' }, bold: true };
+            } else if (estadoTxt.includes('Confección')) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+              cell.font = { color: { argb: 'FFD97706' }, bold: true };
+            } else {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+              cell.font = { color: { argb: 'FFB91C1C' }, bold: true };
+            }
+          }
         });
+
+        rowIndex++;
       });
     });
 
-    const hoja = XLSX.utils.json_to_sheet(filas);
-    const libro = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(libro, hoja, "Balance ROSSELY");
-    XLSX.writeFile(libro, `Balance_ROSSELY_${diasFiltro}Dias.xlsx`);
+    const lastRowIndex = rowIndex - 1;
+
+    // 5. Fila Final de Totales (Consolidado Bancario)
+    const totalRow = worksheet.getRow(rowIndex);
+    totalRow.values = [
+      'TOTAL GENERAL', '', '', '', '', '',
+      { formula: `SUM(G5:G${lastRowIndex})` },
+      { formula: `SUM(H5:H${lastRowIndex})` },
+      { formula: `SUM(I5:I${lastRowIndex})` },
+      { formula: `SUM(J5:J${lastRowIndex})` },
+      ''
+    ];
+    totalRow.height = 32;
+    totalRow.eachCell((cell, colNumber) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+      cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF701A3B' } };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF94A3B8' } },
+        bottom: { style: 'double', color: { argb: 'FF0F172A' } },
+        left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+      };
+      if (colNumber === 7) {
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.numFmt = '#,##0';
+      } else if (colNumber >= 8 && colNumber <= 10) {
+        cell.alignment = { horizontal: 'right', vertical: 'middle' };
+        cell.numFmt = '"S/ "#,##0.00;[Red]-"S/ "#,##0.00;"S/ "0.00';
+      } else {
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+      }
+    });
+
+    // 6. Anchos de columna preestablecidos profesionales
+    worksheet.columns = [
+      { width: 15 }, { width: 18 }, { width: 20 }, { width: 24 },
+      { width: 26 }, { width: 38 }, { width: 10 }, { width: 18 },
+      { width: 18 }, { width: 18 }, { width: 14 }
+    ];
+
+    // Exportar archivo mediante file-saver
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    saveAs(blob, `Balance_Financiero_ROSSELY_${diasFiltro}Dias_${Date.now()}.xlsx`);
+    mostrarToast("✦ Reporte financiero ExcelJS generado y descargado con éxito.");
   };
 
   const chatsNoLeidosCount = chats.filter(c => c.noLeidoPorAdmin).length;
@@ -649,7 +774,7 @@ export default function AdminDashboardView() {
         </div>
       )}
 
-      {/* PESTAÑA 2: PEDIDOS Y BOTÓN DESPLEGABLE INTERACTIVO */}
+      {/* PESTAÑA 2: PEDIDOS Y ESTADOS INTERACTIVOS */}
       {tabActiva === 'pedidos' && (
         <div className="bg-white p-7 rounded-3xl border border-[#FCE4EC] shadow-xs space-y-4">
           <div className="flex justify-between items-center">
@@ -669,7 +794,7 @@ export default function AdminDashboardView() {
                     <div>
                       <span className="text-xs font-bold text-[#701A3B]">Pedido #{p.id.slice(0, 8)}</span>
                       <p className="text-[11px] text-stone-700 font-medium">
-                        Cliente: {p.cliente?.nombre} • Tel: {p.cliente?.telefono} • Destino: {p.cliente?.ciudad} ({p.cliente?.tipoEntrega})
+                        Cliente: {p.cliente?.nombre} • Tel: {p.cliente?.telefono} • Destino: {p.cliente?.ciudad} ({p.cliente?.tipoEnvio || p.cliente?.tipoEntrega})
                       </p>
                     </div>
 
@@ -714,33 +839,49 @@ export default function AdminDashboardView() {
         </div>
       )}
 
-      {/* PESTAÑA 3: BALANCE CONTABLE & EXCEL */}
+      {/* PESTAÑA 3: BALANCE CONTABLE & 15 RANGOS TEMPORALES + EXCELJS PROFESIONAL */}
       {tabActiva === 'balance' && (
         <div className="space-y-8">
           <div className="bg-white p-6 rounded-3xl border border-[#FCE4EC] shadow-xs flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <Clock className="w-5 h-5 text-[#701A3B]" />
-              <span className="text-xs font-bold text-stone-900 uppercase tracking-wider">Periodo:</span>
+              <span className="text-xs font-bold text-stone-900 uppercase tracking-wider">Período de Auditoría:</span>
               <div className="flex flex-wrap gap-1.5">
-                {[1, 7, 30, 90, 365].map(d => (
+                {[
+                  { d: 1, label: '1 Día' },
+                  { d: 7, label: '7 Días' },
+                  { d: 14, label: '14 Días' },
+                  { d: 30, label: '1 Mes' },
+                  { d: 60, label: '2 Meses' },
+                  { d: 90, label: '3 Meses' },
+                  { d: 120, label: '4 Meses' },
+                  { d: 150, label: '5 Meses' },
+                  { d: 180, label: '6 Meses' },
+                  { d: 210, label: '7 Meses' },
+                  { d: 240, label: '8 Meses' },
+                  { d: 270, label: '9 Meses' },
+                  { d: 300, label: '10 Meses' },
+                  { d: 365, label: '1 Año' },
+                  { d: 9999, label: 'Histórico Total' }
+                ].map(r => (
                   <button
-                    key={d}
-                    onClick={() => setDiasFiltro(d)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer border ${
-                      diasFiltro === d ? 'bg-[#701A3B] text-white border-[#701A3B]' : 'bg-[#FFFBFB] text-stone-700 border-[#F8D7E0]'
+                    key={r.d}
+                    onClick={() => setDiasFiltro(r.d)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer border transition ${
+                      diasFiltro === r.d ? 'bg-[#701A3B] text-white border-[#701A3B]' : 'bg-[#FFFBFB] text-stone-700 border-[#F8D7E0] hover:border-[#701A3B]'
                     }`}
                   >
-                    {d} Días
+                    {r.label}
                   </button>
                 ))}
               </div>
             </div>
 
             <button
-              onClick={exportarBalanceExcel}
-              className="bg-emerald-700 hover:bg-emerald-800 text-white px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition flex items-center gap-2 cursor-pointer"
+              onClick={exportarBalanceExcelJS}
+              className="bg-emerald-700 hover:bg-emerald-800 text-white px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition flex items-center gap-2 cursor-pointer shadow-xs"
             >
-              <FileSpreadsheet className="w-4 h-4" /> Exportar a Excel
+              <FileSpreadsheet className="w-4 h-4" /> Exportar Balance Ejecutivo (.xlsx)
             </button>
           </div>
 
@@ -765,7 +906,7 @@ export default function AdminDashboardView() {
         </div>
       )}
 
-      {/* PESTAÑA 4: CHAT EN TIEMPO REAL (MESSENGER / WHATSAPP STYLE) */}
+      {/* PESTAÑA 4: CHAT EN TIEMPO REAL */}
       {tabActiva === 'mensajes' && (
         <div className="bg-white rounded-3xl border border-[#FCE4EC] shadow-sm overflow-hidden h-[620px] grid grid-cols-1 md:grid-cols-12">
           <div className="md:col-span-4 border-r border-[#FCE4EC] flex flex-col h-full bg-[#FFFBFB]">
@@ -942,7 +1083,7 @@ export default function AdminDashboardView() {
         );
       })()}
 
-      {/* PESTAÑA 7: VALIDACIÓN DE SUSCRIPCIONES (S/. 60) */}
+      {/* PESTAÑA 7: VALIDACIÓN DE SUSCRIPCIONES */}
       {tabActiva === 'suscripciones' && (
         <div className="bg-white p-8 rounded-3xl border border-[#FCE4EC] shadow-xs space-y-6">
           <h3 className="font-serif text-lg font-bold text-stone-900">Validación de Pagos de Suscripción (S/. 60.00)</h3>
