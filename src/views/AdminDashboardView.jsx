@@ -1,5 +1,6 @@
 // ============================================================================
-// 2. ADMIN DASHBOARD VIEW (src/views/AdminDashboardView.jsx)
+// ADMIN DASHBOARD VIEW (src/views/AdminDashboardView.jsx)
+// Arquitectura completa optimizada para lote masivo, compresión y finanzas.
 // ============================================================================
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../context/StoreContext';
@@ -27,7 +28,9 @@ import {
   X,
   Plus,
   ShieldAlert,
-  Send
+  Send,
+  Sparkles,
+  ShieldCheck
 } from 'lucide-react';
 
 export default function AdminDashboardView() {
@@ -40,17 +43,20 @@ export default function AdminDashboardView() {
   const [costoUnitario, setCostoUnitario] = useState('');
   const [coleccionSeleccionada, setColeccionSeleccionada] = useState(colecciones[0]?.nombre || 'Colección Exclusiva');
   
-  const [unidadesS, setUnidadesS] = useState('4');
-  const [unidadesM, setUnidadesM] = useState('4');
-  const [unidadesL, setUnidadesL] = useState('4');
-  const [unidadesXL, setUnidadesXL] = useState('0');
+  // Unidades específicas por cada talla
+  const [unidadesS, setUnidadesS] = useState('5');
+  const [unidadesM, setUnidadesM] = useState('8');
+  const [unidadesL, setUnidadesL] = useState('5');
+  const [unidadesXL, setUnidadesXL] = useState('2');
 
   const [descripcion, setDescripcion] = useState('');
-  const [archivosImagenes, setArchivosImagenes] = useState([]);
+  const [archivosSeleccionados, setArchivosSeleccionados] = useState([]);
   const [guardando, setGuardando] = useState(false);
+  const [progresoSubida, setProgresoSubida] = useState('');
   const [toastMsg, setToastMsg] = useState('');
   const [diasFiltro, setDiasFiltro] = useState(30);
 
+  // Estados para avisos gerenciales
   const [tituloAviso, setTituloAviso] = useState('');
   const [mensajeAviso, setMensajeAviso] = useState('');
   const [tipoDestinatario, setTipoDestinatario] = useState('todos');
@@ -72,7 +78,7 @@ export default function AdminDashboardView() {
 
   const mostrarToast = (msg) => {
     setToastMsg(msg);
-    setTimeout(() => setToastMsg(''), 3000);
+    setTimeout(() => setToastMsg(''), 4000);
   };
 
   const emitirSonidoAlarma = () => {
@@ -128,100 +134,113 @@ export default function AdminDashboardView() {
     return () => unsub();
   }, [chatSeleccionado?.id]);
 
+  // Compresión masiva en lote con Canvas en cliente (Inigualable contra cuelgues)
+  const comprimirLoteImagenes = async (files) => {
+    const urlsComprimidas = [];
+    const total = files.length;
+
+    for (let i = 0; i < total; i++) {
+      setProgresoSubida(`Procesando imagen ${i + 1} de ${total}...`);
+      const file = files[i];
+      
+      const base64Optimizada = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+          const img = new Image();
+          img.src = event.target.result;
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const MAX_WIDTH = 800;
+            const MAX_HEIGHT = 800;
+            let width = img.width;
+            let height = img.height;
+
+            if (width > height) {
+              if (width > MAX_WIDTH) {
+                height *= MAX_WIDTH / width;
+                width = MAX_WIDTH;
+              }
+            } else {
+              if (height > MAX_HEIGHT) {
+                width *= MAX_HEIGHT / height;
+                height = MAX_HEIGHT;
+              }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', 0.75));
+          };
+          img.onerror = () => resolve('https://images.unsplash.com/photo-1584100936595-c0654b55a2e2?q=80&w=800');
+        };
+        reader.onerror = () => resolve('https://images.unsplash.com/photo-1584100936595-c0654b55a2e2?q=80&w=800');
+      });
+
+      urlsComprimidas.push(base64Optimizada);
+    }
+    return urlsComprimidas;
+  };
+
   const handleGuardarProducto = async (e) => {
     e.preventDefault();
-    if (!nombre.trim() || !precio || !costoUnitario || archivosImagenes.length === 0) {
+    if (!nombre.trim() || !precio || !costoUnitario || archivosSeleccionados.length === 0) {
       alert("Por favor completa nombre, precio de venta, precio de costo y selecciona al menos una fotografía.");
       return;
     }
 
     setGuardando(true);
+    setProgresoSubida('Iniciando compresión de lote...');
+
     try {
-      const comprimirImagenBase64 = (file) => {
-        return new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.readAsDataURL(file);
-          reader.onload = (event) => {
-            const img = new Image();
-            img.src = event.target.result;
-            img.onload = () => {
-              const canvas = document.createElement('canvas');
-              const MAX_WIDTH = 600;
-              const MAX_HEIGHT = 800;
-              let width = img.width;
-              let height = img.height;
+      const imagenesFinales = await comprimirLoteImagenes(Array.from(archivosSeleccionados));
 
-              if (width > height) {
-                if (width > MAX_WIDTH) {
-                  height *= MAX_WIDTH / width;
-                  width = MAX_WIDTH;
-                }
-              } else {
-                if (height > MAX_HEIGHT) {
-                  width *= MAX_HEIGHT / height;
-                  height = MAX_HEIGHT;
-                }
-              }
-
-              canvas.width = width;
-              canvas.height = height;
-              const ctx = canvas.getContext('2d');
-              ctx.drawImage(img, 0, 0, width, height);
-              resolve(canvas.toDataURL('image/jpeg', 0.7));
-            };
-            img.onerror = () => resolve("https://images.unsplash.com/photo-1584100936595-c0654b55a2e2?q=80&w=800");
-          };
-          reader.onerror = () => resolve("https://images.unsplash.com/photo-1584100936595-c0654b55a2e2?q=80&w=800");
-        });
-      };
-
-      const urlsSubidas = [];
-      const archivosAProcesar = archivosImagenes.slice(0, 2);
-      for (const file of archivosAProcesar) {
-        const compressedBase64 = await comprimirImagenBase64(file);
-        urlsSubidas.push(compressedBase64);
-      }
-
-      const tallasObj = {
+      const tallasMatriz = {
         S: parseInt(unidadesS, 10) || 0,
         M: parseInt(unidadesM, 10) || 0,
         L: parseInt(unidadesL, 10) || 0,
         XL: parseInt(unidadesXL, 10) || 0
       };
 
-      const stockTotal = Object.values(tallasObj).reduce((a, b) => a + b, 0);
-      const tallasActivas = Object.keys(tallasObj).filter(t => tallasObj[t] > 0);
+      const stockTotalCalculado = Object.values(tallasMatriz).reduce((a, b) => a + b, 0);
+      const tallasActivas = Object.keys(tallasMatriz).filter(t => tallasMatriz[t] > 0);
+
+      setProgresoSubida('Sincronizando inventario...');
 
       await addDoc(collection(db, 'productos'), {
         nombre: nombre.trim(),
         precio: parseFloat(precio),
         costoUnitario: parseFloat(costoUnitario),
-        stock: stockTotal > 0 ? stockTotal : 12,
-        tallasStock: tallasObj,
-        tallas: tallasActivas.length > 0 ? tallasActivas : ['S', 'M', 'L'],
+        stock: stockTotalCalculado > 0 ? stockTotalCalculado : 15,
+        tallasStock: tallasMatriz,
+        tallas: tallasActivas.length > 0 ? tallasActivas : ['S', 'M', 'L', 'XL'],
         coleccion: coleccionSeleccionada,
         descripcion: descripcion.trim(),
-        img: urlsSubidas[0],
-        imagenes: urlsSubidas,
-        origen: 'Taller Nuevo Chimbote',
+        img: imagenesFinales[0],
+        imagenes: imagenesFinales,
+        origen: 'Atelier Central • Nuevo Chimbote',
         createdAt: serverTimestamp()
       });
 
-      mostrarToast("✦ ¡Prenda publicada y guardada con éxito!");
-      setNombre(''); 
-      setPrecio(''); 
-      setCostoUnitario(''); 
-      setUnidadesS('4'); 
-      setUnidadesM('4'); 
-      setUnidadesL('4'); 
-      setUnidadesXL('0'); 
-      setDescripcion(''); 
-      setArchivosImagenes([]);
+      mostrarToast("✦ ¡Prenda de alta costura publicada y registrada exitosamente!");
+      setNombre('');
+      setPrecio('');
+      setCostoUnitario('');
+      setDescripcion('');
+      setArchivosSeleccionados([]);
+      setUnidadesS('5');
+      setUnidadesM('8');
+      setUnidadesL('5');
+      setUnidadesXL('2');
     } catch (err) {
       console.error("Error al publicar prenda:", err);
-      alert("Error al guardar en Firestore. Revisa que el tamaño de las imágenes no sea excesivo.");
+      alert("Error al guardar el producto. Verifique su conexión.");
     } finally {
+      // Bloque try/catch/finally estrictamente blindado contra botones atascados
       setGuardando(false);
+      setProgresoSubida('');
     }
   };
 
@@ -266,7 +285,7 @@ export default function AdminDashboardView() {
     e.preventDefault();
     if (!nuevaColeccionInput.trim()) return;
     agregarColeccionDinamica(nuevaColeccionInput.trim());
-    mostrarToast(`✦ Colección "${nuevaColeccionInput}" creada con éxito.`);
+    mostrarToast(`✦ Colección "${nuevaColeccionInput.trim()}" habilitada con éxito.`);
     setNuevaColeccionInput('');
   };
 
@@ -398,6 +417,7 @@ export default function AdminDashboardView() {
         </div>
       )}
 
+      {/* Navegación del Panel */}
       <div className="flex flex-wrap gap-2 p-1.5 bg-white border border-[#F8D7E0] rounded-2xl shadow-xs">
         <button onClick={() => setTabActiva('inventario')} className={`px-4 py-2 rounded-xl text-xs font-bold ${tabActiva === 'inventario' ? 'bg-[#701A3B] text-white' : 'text-stone-600'}`}>Inventario & Colecciones</button>
         <button onClick={() => setTabActiva('pedidos')} className={`px-4 py-2 rounded-xl text-xs font-bold ${tabActiva === 'pedidos' ? 'bg-[#701A3B] text-white' : 'text-stone-600'}`}>Envíos ({pedidos.length})</button>
@@ -411,9 +431,11 @@ export default function AdminDashboardView() {
       {tabActiva === 'inventario' && (
         <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-10">
           <div className="lg:col-span-5 space-y-6">
+            
+            {/* Formulario de Publicación con Lote Masivo y Control Tallas/Costos */}
             <form onSubmit={handleGuardarProducto} className="bg-white p-7 rounded-3xl border border-[#FCE4EC] space-y-4 shadow-sm">
-              <h3 className="font-serif text-lg font-bold text-stone-900">Publicar Nueva Prenda (Control Tallas & Costo)</h3>
-              <input type="text" required placeholder="Nombre de la prenda" value={nombre} onChange={e => setNombre(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none" />
+              <h3 className="font-serif text-lg font-bold text-stone-900">Publicar Nueva Prenda (Lote Masivo)</h3>
+              <input type="text" required placeholder="Nombre de la prenda o set" value={nombre} onChange={e => setNombre(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none" />
               
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -426,6 +448,7 @@ export default function AdminDashboardView() {
                 </div>
               </div>
 
+              {/* Subpanel matricial de unidades por talla */}
               <div className="p-4 bg-[#FFFBFB] rounded-2xl border border-[#F8D7E0] space-y-2">
                 <p className="text-[11px] font-bold text-[#701A3B]">Unidades disponibles por cada Talla:</p>
                 <div className="grid grid-cols-4 gap-2 text-center">
@@ -455,18 +478,30 @@ export default function AdminDashboardView() {
                 </select>
               </div>
 
-              <label className="w-full border-2 border-dashed border-[#F8D7E0] rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-[#FFFBFB]">
-                <UploadCloud className="w-6 h-6 text-[#701A3B] mb-1" />
-                <span className="text-xs text-stone-700 font-medium">Subir fotografías (Comprimidas Automáticas)</span>
-                <input type="file" multiple accept="image/*" onChange={e => setArchivosImagenes(Array.from(e.target.files))} className="hidden" />
-              </label>
-              {archivosImagenes.length > 0 && <p className="text-xs text-[#701A3B] font-bold">{archivosImagenes.length} archivo(s) listo(s).</p>}
+              <div>
+                <label className="block text-[11px] font-bold text-stone-700 mb-1">Fotografías (Lote Masivo)</label>
+                <label className="w-full border-2 border-dashed border-[#F8D7E0] hover:border-[#701A3B] rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-[#FFFBFB] transition">
+                  <UploadCloud className="w-6 h-6 text-[#701A3B] mb-1" />
+                  <span className="text-xs text-stone-700 font-bold">Seleccionar múltiples archivos</span>
+                  <span className="text-[9px] text-stone-400">Compresión automática en cliente</span>
+                  <input type="file" multiple accept="image/*" onChange={e => setArchivosSeleccionados(e.target.files)} className="hidden" />
+                </label>
+                {archivosSeleccionados.length > 0 && <p className="text-xs text-[#701A3B] font-bold mt-2">✓ {archivosSeleccionados.length} archivo(s) en lote.</p>}
+              </div>
 
-              <button type="submit" disabled={guardando} className="w-full bg-[#701A3B] text-white py-3.5 rounded-xl font-bold uppercase text-xs cursor-pointer shadow-md">
-                {guardando ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Publicar Prenda al Instante'}
+              <button type="submit" disabled={guardando} className="w-full bg-[#701A3B] text-white py-3.5 rounded-xl font-bold uppercase text-xs cursor-pointer shadow-md flex items-center justify-center gap-2">
+                {guardando ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-[#D4AF37]" />
+                    <span>{progresoSubida || 'Procesando...'}</span>
+                  </>
+                ) : (
+                  'Publicar Prenda al Instante'
+                )}
               </button>
             </form>
 
+            {/* Apartado para Crear Nueva Colección */}
             <form onSubmit={handleCrearColeccion} className="bg-white p-6 rounded-3xl border border-[#FCE4EC] space-y-3">
               <h4 className="font-serif font-bold text-sm text-stone-900">Añadir Nueva Colección o Edición</h4>
               <div className="flex gap-2">
@@ -477,6 +512,7 @@ export default function AdminDashboardView() {
               </div>
             </form>
 
+            {/* TARJETA DE ADMINISTRADOR PARA ENVIAR AVISOS */}
             <div className="bg-gradient-to-br from-[#1C1819] to-[#701A3B] text-[#F8D7E0] p-6 rounded-3xl shadow-xl border border-[#D4AF37]/50 space-y-4">
               <div className="flex items-center gap-2">
                 <ShieldAlert className="w-5 h-5 text-[#D4AF37]" />
@@ -518,6 +554,7 @@ export default function AdminDashboardView() {
             </div>
           </div>
 
+          {/* Catálogo del Administrador */}
           <div className="lg:col-span-7 bg-white p-7 rounded-3xl border border-[#FCE4EC] space-y-4">
             <h3 className="font-serif text-lg font-bold text-stone-900">Catálogo Actual & Edición en Vivo ({productos.length})</h3>
             <div className="space-y-3 max-h-[700px] overflow-y-auto pr-2">
@@ -542,6 +579,7 @@ export default function AdminDashboardView() {
         </div>
       )}
 
+      {/* Modal de Edición de Producto */}
       {productoEnEdicion && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <form onSubmit={guardarEdicionProducto} className="bg-white p-8 rounded-3xl max-w-md w-full space-y-4">
