@@ -5,7 +5,7 @@ import Footer from './components/Footer';
 import SupportChatbot from './components/SupportChatbot';
 import LoyaltyWalletCard from './components/LoyaltyWalletCard';
 import SubscriptionBannerWidget from './components/SubscriptionBannerWidget';
-
+import SubscriptionBannerWidget from './components/SubscriptionBannerWidget';
 import HomeView from './views/HomeView';
 import CatalogView from './views/CatalogView';
 import CommunityView from './views/CommunityView';
