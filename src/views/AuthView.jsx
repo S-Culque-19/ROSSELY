@@ -1,12 +1,8 @@
-// ============================================================================
-// COMPONENTE 4: GESTIÓN DE AUTENTICACIÓN Y REGISTRO (AuthView.jsx)
-// ============================================================================
 import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
-import { Sparkles, CheckCircle } from 'lucide-react';
 
 export default function AuthView() {
-  const { iniciarSesion, registrarUsuario, navegarA } = useStore();
+  const { iniciarSesion, registrarUsuario } = useStore();
   const [esRegistro, setEsRegistro] = useState(false);
   const [nombre, setNombre] = useState('');
   const [email, setEmail] = useState('');
@@ -44,8 +40,8 @@ export default function AuthView() {
             </div>
           )}
           <div>
-            <label className="block text-[11px] font-bold text-stone-700 mb-1">Correo Electrónico</label>
-            <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-4 py-3 text-xs outline-none font-mono" />
+            <label className="block text-[11px] font-bold text-stone-700 mb-1">Correo Electrónico / Usuario Admin</label>
+            <input type="text" required value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-4 py-3 text-xs outline-none font-mono" placeholder="Ej. carmen@eshda.org.com" />
           </div>
           <div>
             <label className="block text-[11px] font-bold text-stone-700 mb-1">Contraseña</label>
