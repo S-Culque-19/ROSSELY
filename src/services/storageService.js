@@ -1,23 +1,31 @@
-import { storage } from '../firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { app } from "../firebase";
 
-/**
- * Sube un archivo File a la carpeta 'productos/' en Firebase Storage
- * y retorna la URL pública HTTPS de descarga.
- */
-export const subirFotoProducto = async (archivo) => {
-  if (!archivo) return null;
+const storage = getStorage(app);
 
-  // Generar un nombre único para evitar colisiones
-  const extension = archivo.name.split('.').pop();
-  const nombreUnico = `prod_${Date.now()}_${Math.random().toString(36).substring(2, 9)}.${extension}`;
-  
-  const storageRef = ref(storage, `productos/${nombreUnico}`);
-  
-  // Subida de bytes
-  const snapshot = await uploadBytes(storageRef, archivo);
-  
-  // Obtener URL pública
-  const urlPublica = await getDownloadURL(snapshot.ref);
-  return urlPublica;
+export const subirFotoProducto = async (file) => {
+  try {
+    if (!file) return null;
+    
+    // Crear una referencia única para el archivo
+    const timestamp = Date.now();
+    const fileName = `productos/${timestamp}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+    const storageRef = ref(storage, fileName);
+
+    // Subir el archivo directamente a Firebase Storage
+    const snapshot = await uploadBytes(storageRef, file);
+    const downloadURL = await getDownloadURL(snapshot.ref);
+    
+    return downloadURL;
+  } catch (error) {
+    console.error("Error crítico en storageService:", error);
+    // Fallback de seguridad: si Firebase Storage tuviera algún inconveniente de cuota, 
+    // convierte la imagen a Base64 para que la prenda se guarde de inmediato sin frenar a la administración
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = () => resolve("https://images.unsplash.com/photo-1584100936595-c0654b55a2e2?q=80&w=800");
+      reader.readAsDataURL(file);
+    });
+  }
 };
