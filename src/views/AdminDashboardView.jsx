@@ -1,6 +1,6 @@
 // ============================================================================
 // ADMIN DASHBOARD VIEW (src/views/AdminDashboardView.jsx)
-// Versión definitiva y ultra limpia con validación directa por URL.
+// Versión magistral con subida en paralelo real y cero bloqueos.
 // ============================================================================
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../context/StoreContext';
@@ -50,7 +50,8 @@ export default function AdminDashboardView() {
   const [unidadesXL, setUnidadesXL] = useState('2');
   const [descripcion, setDescripcion] = useState('');
 
-  const [fotosCola, setFotosCola] = useState([]);
+  const [archivosSeleccionados, setArchivosSeleccionados] = useState([]);
+  const [previsualizaciones, setPrevisualizaciones] = useState([]);
   const [guardando, setGuardando] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
   const [diasFiltro, setDiasFiltro] = useState(30);
@@ -138,44 +139,15 @@ export default function AdminDashboardView() {
     return () => unsub();
   }, [chatSeleccionado?.id]);
 
-  const handleAgregarFotosCola = async (e) => {
+  // Manejo directo de selección de archivos y previsualización local instantánea
+  const handleSeleccionarArchivos = (e) => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
-
-    for (const file of files) {
-      const newItem = {
-        id: Date.now() + Math.random(),
-        preview: URL.createObjectURL(file),
-        progreso: 0,
-        url: '',
-        subiendo: true
-      };
-
-      setFotosCola(prev => [...prev, newItem]);
-
-      try {
-        const downloadUrl = await subirImagenConProgreso(file, (pct) => {
-          setFotosCola(prev => prev.map(item => item.id === newItem.id ? { ...item, progreso: pct } : item));
-        });
-
-        setFotosCola(prev => prev.map(item => item.id === newItem.id ? { 
-          ...item, 
-          url: downloadUrl, 
-          subiendo: false, 
-          progreso: 100 
-        } : item));
-      } catch (err) {
-        console.error("Error subiendo foto:", err);
-        alert(`Error al subir la imagen ${file.name}.`);
-        setFotosCola(prev => prev.filter(item => item.id !== newItem.id));
-      }
-    }
+    setArchivosSeleccionados(files);
+    setPrevisualizaciones(files.map(file => URL.createObjectURL(file)));
   };
 
-  const eliminarFotoCola = (id) => {
-    setFotosCola(prev => prev.filter(item => item.id !== id));
-  };
-
+  // Función de guardado con subida simultánea y segura a Firebase Storage
   const handleGuardarProducto = async (e) => {
     e.preventDefault();
     if (!nombre.trim() || !precio || !costoUnitario) {
@@ -183,18 +155,19 @@ export default function AdminDashboardView() {
       return;
     }
 
-    // VALIDACIÓN DIRECTA POR URL (Asegura que pasen las fotos que ya tienen enlace)
-    const fotosListas = fotosCola.filter(f => f.url);
-    if (fotosListas.length === 0) {
-      alert("Debe esperar a que al menos una fotografía termine de subir a Firebase Storage antes de publicar.");
+    if (archivosSeleccionados.length === 0) {
+      alert("Debe seleccionar al menos una fotografía para la prenda.");
       return;
     }
 
     setGuardando(true);
 
     try {
-      const urlsMultimedia = fotosListas.map(f => f.url);
-      const imagenPrincipal = urlsMultimedia[0];
+      // Subir todas las imágenes en paralelo directo a Firebase Storage
+      const promesasSubida = archivosSeleccionados.map(file => subirImagenConProgreso(file));
+      const urlsMultimedia = await Promise.all(promesasSubida);
+      
+      const imagenPrincipal = urlsMultimedia[0]; // La primera es la portada principal obligatoria
 
       const tallasMatriz = {
         S: parseInt(unidadesS, 10) || 0,
@@ -221,19 +194,20 @@ export default function AdminDashboardView() {
         createdAt: serverTimestamp()
       });
 
-      mostrarToast("✦ ¡Prenda de alta costura publicada con éxito!");
+      mostrarToast("✦ ¡Prenda publicada con éxito en Firebase Storage y Firestore!");
       setNombre('');
       setPrecio('');
       setCostoUnitario('');
       setDescripcion('');
-      setFotosCola([]);
+      setArchivosSeleccionados([]);
+      setPrevisualizaciones([]);
       setUnidadesS('5');
       setUnidadesM('8');
       setUnidadesL('5');
       setUnidadesXL('2');
     } catch (err) {
-      console.error("Error al registrar producto:", err);
-      alert("Error al guardar en base de datos.");
+      console.error("Error crítico al registrar producto:", err);
+      alert("Error al subir las imágenes o guardar en base de datos. Verifique su conexión.");
     } finally {
       setGuardando(false);
     }
@@ -497,31 +471,19 @@ export default function AdminDashboardView() {
                 <label className="w-full border-2 border-dashed border-[#F8D7E0] hover:border-[#701A3B] rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-[#FFFBFB] transition">
                   <UploadCloud className="w-6 h-6 text-[#701A3B] mb-1" />
                   <span className="text-xs text-stone-700 font-bold">Seleccionar fotografías</span>
-                  <input type="file" multiple accept="image/*" onChange={handleAgregarFotosCola} className="hidden" />
+                  <input type="file" multiple accept="image/*" onChange={handleSeleccionarArchivos} className="hidden" />
                 </label>
 
-                {fotosCola.length > 0 && (
-                  <div className="mt-3 space-y-2">
-                    {fotosCola.map((item, idx) => (
-                      <div key={item.id} className="p-2.5 bg-stone-50 border border-[#F8D7E0] rounded-2xl flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <img src={item.preview} alt="Miniatura" className="w-10 h-10 rounded-xl object-cover border" />
-                          <div>
-                            <p className="text-[11px] font-bold text-stone-800">
-                              {idx === 0 ? '★ Portada Principal' : `Foto #${idx + 1}`}
-                            </p>
-                            {item.subiendo ? (
-                              <p className="text-[10px] text-[#701A3B] font-semibold">Subiendo: {item.progreso}%</p>
-                            ) : (
-                              <p className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-                                <Check className="w-3 h-3" /> Listo en Storage
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        <button type="button" onClick={() => eliminarFotoCola(item.id)} className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg cursor-pointer">
-                          <X className="w-4 h-4" />
-                        </button>
+                {previsualizaciones.length > 0 && (
+                  <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
+                    {previsualizaciones.map((url, idx) => (
+                      <div key={idx} className="relative w-16 h-20 rounded-xl border border-[#F8D7E0] overflow-hidden shrink-0 bg-stone-100">
+                        <img src={url} alt="Vista Previa" className="w-full h-full object-cover" />
+                        {idx === 0 && (
+                          <span className="absolute bottom-0 inset-x-0 bg-[#701A3B] text-white text-[8px] font-bold text-center py-0.5">
+                            Principal
+                          </span>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -532,7 +494,7 @@ export default function AdminDashboardView() {
                 {guardando ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin text-[#D4AF37]" />
-                    <span>Guardando producto...</span>
+                    <span>Subiendo a Storage y Publicando...</span>
                   </>
                 ) : (
                   'Publicar Prenda al Instante'

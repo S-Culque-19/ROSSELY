@@ -1,25 +1,18 @@
-// ============================================================================
-// SERVICIO DE SUBIDA A FIREBASE STORAGE (src/services/storageService.js)
-// ============================================================================
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { app } from "../firebase";
 
 const storage = getStorage(app);
 
-export const subirImagenConProgreso = async (file, onProgress) => {
-  if (!file) throw new Error("No se proporcionó ningún archivo.");
-  
-  if (onProgress) onProgress(30); // Progreso inicial rápido
+export const subirImagenConProgreso = async (file) => {
+  if (!file) throw new Error("No hay archivo proporcionado.");
   
   const timestamp = Date.now();
   const cleanName = file.name.replace(/[^a-zA-Z0-9.]/g, '_');
   const storageRef = ref(storage, `productos/${timestamp}_${cleanName}`);
   
-  // Subida directa y blindada sin bloqueos de hilo
+  // Subida directa sin callbacks de porcentaje que congelen la app
   const snapshot = await uploadBytes(storageRef, file);
-  
-  if (onProgress) onProgress(100); // Progreso completado
-  
   const downloadURL = await getDownloadURL(snapshot.ref);
+  
   return downloadURL;
 };
