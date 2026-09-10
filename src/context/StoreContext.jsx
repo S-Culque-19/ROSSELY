@@ -1,4 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+// ==========================================
+// 1. STORE CONTEXT (src/context/StoreContext.jsx)
+// ==========================================
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { db } from '../firebase';
 import { 
   collection, 
@@ -19,32 +22,63 @@ const StoreContext = createContext();
 
 export const StoreProvider = ({ children }) => {
   const [productos, setProductos] = useState([]);
+  const [colecciones, setColecciones] = useState([
+    { id: 'col_1', nombre: 'Colección Exclusiva • Atelier ROSSELY' },
+    { id: 'col_2', nombre: 'Edición Seda Imperial' },
+    { id: 'col_3', nombre: 'Satén de Novias & Veladas' }
+  ]);
   const [pedidos, setPedidos] = useState([]);
   const [cargandoProductos, setCargandoProductos] = useState(true);
 
   const [usuarioActual, setUsuarioActual] = useState(() => {
-    const saved = localStorage.getItem('rossely_sesion');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('rossely_sesion');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
   });
 
   const [carrito, setCarrito] = useState(() => {
-    const saved = localStorage.getItem('rossely_carrito');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('rossely_carrito');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
   });
 
   const [currentView, setCurrentView] = useState(() => {
-    const saved = localStorage.getItem('rossely_sesion');
-    if (saved) {
-      const u = JSON.parse(saved);
-      if (u?.role === 'admin') return 'admin';
-    }
+    try {
+      const saved = localStorage.getItem('rossely_sesion');
+      if (saved) {
+        const u = JSON.parse(saved);
+        if (u?.role === 'admin') return 'admin';
+      }
+    } catch {}
     return 'home';
   });
 
   const [selectedProduct, setSelectedProduct] = useState(null);
   const esAdmin = usuarioActual?.role === 'admin';
 
-  // Sincronización de productos en tiempo real
+  // Sincronización ultrarrápida de colecciones dinámicas
+  useEffect(() => {
+    try {
+      const colRef = collection(db, 'colecciones');
+      const unsub = onSnapshot(colRef, (snapshot) => {
+        if (!snapshot.empty) {
+          const colsDinamicas = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+          setColecciones(colsDinamicas);
+        }
+      }, () => {});
+      return () => unsub();
+    } catch (e) {
+      console.warn("Colecciones locales estáticas cargadas");
+    }
+  }, []);
+
+  // Sincronización en tiempo real con milisegundos de latencia para Productos
   useEffect(() => {
     try {
       const colRef = collection(db, 'productos');
@@ -65,7 +99,7 @@ export const StoreProvider = ({ children }) => {
     }
   }, []);
 
-  // Sincronización de pedidos en tiempo real
+  // Sincronización en tiempo real para Pedidos
   useEffect(() => {
     try {
       const colRef = collection(db, 'pedidos');
@@ -101,7 +135,6 @@ export const StoreProvider = ({ children }) => {
       const querySnapshot = await getDocs(q);
       
       if (querySnapshot.empty) {
-        // Fallback automático para permitir acceso inmediato si el usuario ya existe en Firestore pero hubo desfase
         return { success: false, error: 'No existe cuenta registrada con este correo.' };
       }
 
@@ -110,7 +143,7 @@ export const StoreProvider = ({ children }) => {
 
       if (clienteEncontrado.password !== password) return { success: false, error: 'Contraseña incorrecta.' };
 
-      if (!clienteEncontrado.puntos) clienteEncontrado.puntos = 0;
+      if (clienteEncontrado.puntos === undefined) clienteEncontrado.puntos = 0;
       if (!clienteEncontrado.suscripcion) clienteEncontrado.suscripcion = { tipo: 'free' };
 
       setUsuarioActual(clienteEncontrado);
@@ -181,7 +214,6 @@ export const StoreProvider = ({ children }) => {
     localStorage.setItem('rossely_carrito', JSON.stringify(nuevo));
   };
 
-  // Cálculo de Ruletas VIP / Golden según consumo semanal
   const calcularMembresiaRuleta = (pedidosCliente) => {
     const gasto = pedidosCliente.reduce((acc, p) => acc + (parseFloat(p.subtotal || p.total) || 0), 0);
     if (gasto >= 1000) return { nivel: 'Gold VIP', ruleta: 'Ruleta de Oro (Premios Exclusivos)' };
@@ -199,7 +231,6 @@ export const StoreProvider = ({ children }) => {
     }
 
     const nuevosPuntos = usuarioActual.puntos - puntosNecesarios;
-
     const nuevoPedido = {
       cliente: {
         nombre: usuarioActual.nombre,
@@ -221,9 +252,7 @@ export const StoreProvider = ({ children }) => {
 
     const userRef = doc(db, 'usuarios', usuarioActual.uid || usuarioActual.id);
     await updateDoc(userRef, { puntos: nuevosPuntos });
-
-    const clienteActualizado = { ...usuarioActual, puntos: nuevosPuntos };
-    setUsuarioActual(clienteActualizado);
+    setUsuarioActual({ ...usuarioActual, puntos: nuevosPuntos });
 
     const docRef = await addDoc(collection(db, 'pedidos'), nuevoPedido);
     setCarrito([]);
@@ -271,15 +300,34 @@ export const StoreProvider = ({ children }) => {
     }
   };
 
-  const navegarA = (vista, producto = null) => {
+  const editarProducto = async (id, datosActualizados) => {
+    try {
+      await updateDoc(doc(db, 'productos', id), datosActualizados);
+      setProductos(prev => prev.map(p => p.id === id ? { ...p, ...datosActualizados } : p));
+    } catch (e) {
+      console.error("Error al editar:", e);
+    }
+  };
+
+  const agregarColeccionDinamica = async (nombreColeccion) => {
+    try {
+      const docRef = await addDoc(collection(db, 'colecciones'), { nombre: nombreColeccion, createdAt: serverTimestamp() });
+      setColecciones(prev => [...prev, { id: docRef.id, nombre: nombreColeccion }]);
+    } catch {
+      setColecciones(prev => [...prev, { id: 'col_' + Date.now(), nombre: nombreColeccion }]);
+    }
+  };
+
+  const navegarA = useCallback((vista, producto = null) => {
     if (producto) setSelectedProduct(producto);
     setCurrentView(vista);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  }, []);
 
   return (
     <StoreContext.Provider value={{
       productos,
+      colecciones,
       cargandoProductos,
       carrito,
       currentView,
@@ -296,6 +344,8 @@ export const StoreProvider = ({ children }) => {
       registrarPedidoConPuntos,
       actualizarEstadoPedido,
       eliminarProducto,
+      editarProducto,
+      agregarColeccionDinamica,
       calcularMembresiaRuleta,
       navegarA
     }}>
