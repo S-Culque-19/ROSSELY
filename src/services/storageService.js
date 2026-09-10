@@ -1,25 +1,42 @@
-import { storage } from "../firebase";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+// ============================================================================
+// 1. SERVICIO DE SUBIDA A FIREBASE STORAGE (src/services/storageService.js)
+// ============================================================================
+import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { app } from "../firebase";
 
-export const subirFotoProducto = async (file) => {
-  try {
-    if (!file) return null;
-    
+const storage = getStorage(app);
+
+export const subirImagenConProgreso = (file, onProgress) => {
+  return new Promise((resolve, reject) => {
+    if (!file) {
+      reject(new Error("No se proporcionó ningún archivo para subir."));
+      return;
+    }
+
     const timestamp = Date.now();
-    const fileName = `productos/${timestamp}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
-    const storageRef = ref(storage, fileName);
-
-    const snapshot = await uploadBytes(storageRef, file);
-    const downloadURL = await getDownloadURL(snapshot.ref);
+    const cleanName = file.name.replace(/[^a-zA-Z0-9.]/g, '_');
+    const storageRef = ref(storage, `productos/${timestamp}_${cleanName}`);
     
-    return downloadURL;
-  } catch (error) {
-    console.error("Error en storageService:", error);
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.onerror = () => resolve("https://images.unsplash.com/photo-1584100936595-c0654b55a2e2?q=80&w=800");
-      reader.readAsDataURL(file);
-    });
-  }
+    const uploadTask = uploadBytesResumable(storageRef, file);
+
+    uploadTask.on(
+      'state_changed',
+      (snapshot) => {
+        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+        if (onProgress) onProgress(Math.round(progress));
+      },
+      (error) => {
+        console.error("Error en Firebase Storage:", error);
+        reject(error);
+      },
+      async () => {
+        try {
+          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+          resolve(downloadURL);
+        } catch (err) {
+          reject(err);
+        }
+      }
+    );
+  });
 };

@@ -1,6 +1,5 @@
 // ============================================================================
-// ADMIN DASHBOARD VIEW (src/views/AdminDashboardView.jsx)
-// Subida ultrarrápida sin bloqueos, vista previa inmediata y editor total.
+// 3. COMPONENTE GERENCIAL MAESTRO (src/views/AdminDashboardView.jsx)
 // ============================================================================
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../context/StoreContext';
@@ -15,6 +14,7 @@ import {
   orderBy, 
   serverTimestamp 
 } from 'firebase/firestore';
+import { subirImagenConProgreso } from '../services/storageService';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { 
@@ -29,7 +29,9 @@ import {
   Plus,
   ShieldAlert,
   Send,
-  Eye
+  Eye,
+  Sparkles,
+  Check
 } from 'lucide-react';
 
 export default function AdminDashboardView() {
@@ -49,8 +51,8 @@ export default function AdminDashboardView() {
   const [unidadesXL, setUnidadesXL] = useState('2');
   const [descripcion, setDescripcion] = useState('');
 
-  const [archivosSeleccionados, setArchivosSeleccionados] = useState([]);
-  const [previsualizaciones, setPrevisualizaciones] = useState([]);
+  // Estados para subida de fotos una por una en tiempo real
+  const [fotosCola, setFotosCola] = useState([]); // Array de objetos: { file, preview, progreso, url, subiendo }
   const [guardando, setGuardando] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
   const [diasFiltro, setDiasFiltro] = useState(30);
@@ -72,7 +74,7 @@ export default function AdminDashboardView() {
   const [editL, setEditL] = useState('0');
   const [editXL, setEditXL] = useState('0');
 
-  // Visor de imagen grande en admin
+  // Visor de imagen grande
   const [imagenModalGrande, setImagenModalGrande] = useState(null);
 
   const [nuevaColeccionInput, setNuevaColeccionInput] = useState('');
@@ -143,45 +145,66 @@ export default function AdminDashboardView() {
     return () => unsub();
   }, [chatSeleccionado?.id]);
 
-  // Manejar selección de archivos y generar previsualizaciones instantáneas
-  const handleSeleccionarArchivos = (e) => {
+  // Selección de archivos uno por uno y subida asíncrona a Firebase Storage con progreso
+  const handleAgregarFotosCola = async (e) => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
-    setArchivosSeleccionados(files);
 
-    // Generar URLs de vista previa inmediata
-    const previews = files.map(file => URL.createObjectURL(file));
-    setPrevisualizaciones(previews);
+    for (const file of files) {
+      const newItem = {
+        id: Date.now() + Math.random(),
+        file,
+        preview: URL.createObjectURL(file),
+        progreso: 0,
+        url: '',
+        subiendo: true,
+        completado: false
+      };
+
+      setFotosCola(prev => [...prev, newItem]);
+
+      try {
+        const downloadUrl = await subirImagenConProgreso(file, (progresoPct) => {
+          setFotosCola(prev => prev.map(item => item.id === newItem.id ? { ...item, progreso: progresoPct } : item));
+        });
+
+        setFotosCola(prev => prev.map(item => item.id === newItem.id ? { 
+          ...item, 
+          url: downloadUrl, 
+          subiendo: false, 
+          completado: true 
+        } : item));
+      } catch (err) {
+        console.error("Error subiendo foto individual:", err);
+        alert(`Error al subir la imagen ${file.name}. Verifique su conexión.`);
+        setFotosCola(prev => prev.filter(item => item.id !== newItem.id));
+      }
+    }
   };
 
-  // Subida instantánea y blindada sin bucles de bloqueo
+  const eliminarFotoCola = (id) => {
+    setFotosCola(prev => prev.filter(item => item.id !== id));
+  };
+
+  // Guardado principal blindado con try/catch/finally
   const handleGuardarProducto = async (e) => {
     e.preventDefault();
-    if (!nombre.trim() || !precio || !costoUnitario || archivosSeleccionados.length === 0) {
-      alert("Por favor completa nombre, precio de venta, precio de costo y selecciona al menos una fotografía principal.");
+    if (!nombre.trim() || !precio || !costoUnitario) {
+      alert("Por favor complete nombre, precio de venta y precio de costo.");
+      return;
+    }
+
+    const fotosCompletadas = fotosCola.filter(f => f.completado && f.url);
+    if (fotosCompletadas.length === 0) {
+      alert("Debe subir al menos una fotografía a Firebase Storage antes de publicar.");
       return;
     }
 
     setGuardando(true);
 
     try {
-      // Conversión directa y rápida a Base64 sin colgar el hilo
-      const convertirArchivoABase64 = (file) => {
-        return new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.onerror = () => resolve("https://images.unsplash.com/photo-1584100936595-c0654b55a2e2?q=80&w=800");
-          reader.readAsDataURL(file);
-        });
-      };
-
-      const urlsBase64 = [];
-      // Tomamos máximo las primeras 3 fotos para asegurar velocidad instantánea
-      const archivosAProcesar = Array.from(archivosSeleccionados).slice(0, 3);
-      for (const file of archivosAProcesar) {
-        const res = await convertirArchivoABase64(file);
-        urlsBase64.push(res);
-      }
+      const urlsMultimedia = fotosCompletadas.map(f => f.url);
+      const imagenPrincipal = urlsMultimedia[0]; // LA PRIMERA ES SÍ O SÍ LA PORTADA PRINCIPAL
 
       const tallasMatriz = {
         S: parseInt(unidadesS, 10) || 0,
@@ -202,27 +225,27 @@ export default function AdminDashboardView() {
         tallas: tallasActivas.length > 0 ? tallasActivas : ['S', 'M', 'L', 'XL'],
         coleccion: coleccionSeleccionada,
         descripcion: descripcion.trim(),
-        img: urlsBase64[0], // LA PRIMERA IMAGEN ES SI O SI LA PRINCIPAL
-        imagenes: urlsBase64, // TODAS LAS IMÁGENES DISPONIBLES PARA EL CLIENTE
+        img: imagenPrincipal,
+        imagenes: urlsMultimedia,
         origen: 'Atelier Central • Nuevo Chimbote',
         createdAt: serverTimestamp()
       });
 
-      mostrarToast("✦ ¡Prenda publicada con éxito en el catálogo!");
+      mostrarToast("✦ ¡Prenda de alta costura sincronizada y publicada con éxito!");
       setNombre('');
       setPrecio('');
       setCostoUnitario('');
       setDescripcion('');
-      setArchivosSeleccionados([]);
-      setPrevisualizaciones([]);
+      setFotosCola([]);
       setUnidadesS('5');
       setUnidadesM('8');
       setUnidadesL('5');
       setUnidadesXL('2');
     } catch (err) {
-      console.error("Error al publicar prenda:", err);
-      alert("Error al guardar el producto. Revisa la consola.");
+      console.error("Error crítico al registrar producto:", err);
+      alert("Error al guardar en base de datos. Revise la consola.");
     } finally {
+      // Bloque finally estrictamente blindado contra bloqueos infinitos
       setGuardando(false);
     }
   };
@@ -437,9 +460,9 @@ export default function AdminDashboardView() {
         <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-10">
           <div className="lg:col-span-5 space-y-6">
             
-            {/* Formulario de Publicación con Previsualización Instantánea */}
+            {/* Formulario de Publicación con Subida Real a Storage Uno por Uno */}
             <form onSubmit={handleGuardarProducto} className="bg-white p-7 rounded-3xl border border-[#FCE4EC] space-y-4 shadow-sm">
-              <h3 className="font-serif text-lg font-bold text-stone-900">Publicar Nueva Prenda (Con Previsualización)</h3>
+              <h3 className="font-serif text-lg font-bold text-stone-900">Publicar Prenda (Subida Real a Storage)</h3>
               <input type="text" required placeholder="Nombre de la prenda o set" value={nombre} onChange={e => setNombre(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none" />
               
               <div className="grid grid-cols-2 gap-3">
@@ -483,25 +506,37 @@ export default function AdminDashboardView() {
                 </select>
               </div>
 
-              {/* SECCIÓN DE FOTOGRAFÍAS CON VISTA PREVIA EN MINIATURA */}
+              {/* GESTIÓN DE FOTOGRAFÍAS UNA POR UNA CON PROGRESO INDEPENDIENTE */}
               <div>
-                <label className="block text-[11px] font-bold text-stone-700 mb-1">Fotografías (La 1ra será la Principal)</label>
+                <label className="block text-[11px] font-bold text-stone-700 mb-1">Fotografías (La 1ra será la Portada Principal)</label>
                 <label className="w-full border-2 border-dashed border-[#F8D7E0] hover:border-[#701A3B] rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-[#FFFBFB] transition">
                   <UploadCloud className="w-6 h-6 text-[#701A3B] mb-1" />
-                  <span className="text-xs text-stone-700 font-bold">Seleccionar fotografías</span>
-                  <input type="file" multiple accept="image/*" onChange={handleSeleccionarArchivos} className="hidden" />
+                  <span className="text-xs text-stone-700 font-bold">Seleccionar fotografías (una por una o varias)</span>
+                  <input type="file" multiple accept="image/*" onChange={handleAgregarFotosCola} className="hidden" />
                 </label>
 
-                {previsualizaciones.length > 0 && (
-                  <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
-                    {previsualizaciones.map((url, idx) => (
-                      <div key={idx} className="relative w-16 h-20 rounded-xl border border-[#F8D7E0] overflow-hidden shrink-0 bg-stone-100">
-                        <img src={url} alt="Vista Previa" className="w-full h-full object-cover" />
-                        {idx === 0 && (
-                          <span className="absolute bottom-0 inset-x-0 bg-[#701A3B] text-white text-[8px] font-bold text-center py-0.5">
-                            Principal
-                          </span>
-                        )}
+                {fotosCola.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    {fotosCola.map((item, idx) => (
+                      <div key={item.id} className="p-2.5 bg-stone-50 border border-[#F8D7E0] rounded-2xl flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <img src={item.preview} alt="Miniatura" className="w-10 h-10 rounded-xl object-cover border" />
+                          <div>
+                            <p className="text-[11px] font-bold text-stone-800">
+                              {idx === 0 ? '★ Portada Principal' : `Foto #${idx + 1}`}
+                            </p>
+                            {item.subtrying || item.subiendo ? (
+                              <p className="text-[10px] text-[#701A3B] font-semibold">Subiendo a Storage: {item.progreso}%</p>
+                            ) : (
+                              <p className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+                                <Check className="w-3 h-3" /> Subido a Firebase Storage
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <button type="button" onClick={() => eliminarFotoCola(item.id)} className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg cursor-pointer">
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -512,7 +547,7 @@ export default function AdminDashboardView() {
                 {guardando ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin text-[#D4AF37]" />
-                    <span>Publicando al instante...</span>
+                    <span>Sincronizando inventario...</span>
                   </>
                 ) : (
                   'Publicar Prenda al Instante'
@@ -539,7 +574,6 @@ export default function AdminDashboardView() {
               {productos.map(p => (
                 <div key={p.id} className="flex items-center justify-between p-3.5 rounded-2xl border border-stone-100 bg-[#FFFBFB]">
                   <div className="flex items-center gap-3">
-                    {/* Botón para ver imagen grande en modal */}
                     <div className="relative group cursor-pointer" onClick={() => setImagenModalGrande(p.img)}>
                       <img src={p.img} alt={p.nombre} className="w-12 h-14 rounded-lg object-cover border" />
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition rounded-lg flex items-center justify-center text-white">
