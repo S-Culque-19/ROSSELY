@@ -1,3 +1,6 @@
+// ============================================================================
+// 1. STORE CONTEXT (src/context/StoreContext.jsx)
+// ============================================================================
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { db } from '../firebase';
 import { 
@@ -60,7 +63,6 @@ export const StoreProvider = ({ children }) => {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const esAdmin = usuarioActual?.role === 'admin';
 
-  // Sincronización de avisos gerenciales para los clientes
   useEffect(() => {
     try {
       const colRef = collection(db, 'avisos_gerenciales');
@@ -69,12 +71,9 @@ export const StoreProvider = ({ children }) => {
         setAvisosGlobales(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
       }, () => {});
       return () => unsub();
-    } catch (e) {
-      console.warn("Avisos offline:", e);
-    }
+    } catch (e) {}
   }, []);
 
-  // Sincronización de colecciones
   useEffect(() => {
     try {
       const colRef = collection(db, 'colecciones');
@@ -87,7 +86,6 @@ export const StoreProvider = ({ children }) => {
     } catch (e) {}
   }, []);
 
-  // Sincronización de productos
   useEffect(() => {
     try {
       const colRef = collection(db, 'productos');
@@ -108,7 +106,6 @@ export const StoreProvider = ({ children }) => {
     }
   }, []);
 
-  // Sincronización de pedidos
   useEffect(() => {
     try {
       const colRef = collection(db, 'pedidos');
