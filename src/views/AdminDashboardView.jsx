@@ -5,8 +5,8 @@ import {
   collection, 
   addDoc, 
   doc, 
+  setDoc,
   updateDoc, 
-  deleteDoc, 
   onSnapshot, 
   query, 
   orderBy, 
@@ -31,11 +31,12 @@ import {
   Gift,
   Trophy,
   Crown,
-  Bell
+  Bell,
+  CheckCircle
 } from 'lucide-react';
 
 export default function AdminDashboardView() {
-  const { productos, pedidos, actualizarEstadoPedido, eliminarProducto } = useStore();
+  const { productos, pedidos, actualizarEstadoPedido, eliminarProducto, calcularMembresiaRuleta } = useStore();
   const [tabActiva, setTabActiva] = useState('inventario');
 
   const [alertaUrgente, setAlertaUrgente] = useState(false);
@@ -59,6 +60,13 @@ export default function AdminDashboardView() {
 
   const [suscripcionesPendientes, setSuscripcionesPendientes] = useState([]);
 
+  const [configNocturna, setConfigNocturna] = useState({
+    activo: true,
+    mensaje: "El confort de la seda te espera esta noche...",
+    codigoDescuento: "SEDA-NOCHE"
+  });
+  const [guardandoConfig, setGuardandoConfig] = useState(false);
+
   const mostrarToast = (msg) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(''), 3000);
@@ -81,7 +89,14 @@ export default function AdminDashboardView() {
     }
   };
 
-  // Alarma en tiempo real para chats y suscripciones
+  useEffect(() => {
+    const docRef = doc(db, 'configuracion', 'experiencia_nocturna');
+    const unsub = onSnapshot(docRef, (snap) => {
+      if (snap.exists()) setConfigNocturna(prev => ({ ...prev, ...snap.data() }));
+    });
+    return () => unsub();
+  }, []);
+
   useEffect(() => {
     const q = query(collection(db, 'chats'), orderBy('ultimaFecha', 'desc'));
     const unsub = onSnapshot(q, (snap) => {
@@ -192,7 +207,7 @@ export default function AdminDashboardView() {
           suscripcion: { tipo: 'premium', fechaExpiracion: fechaExp.toISOString() },
           puntos: 100
         });
-        mostrarToast("✦ Suscripción aprobada. Estatus cambiado a Verificado (Check Verde).");
+        mostrarToast("✦ Suscripción aprobada y verificada.");
       }
     } catch (err) {
       console.error(err);
@@ -217,7 +232,7 @@ export default function AdminDashboardView() {
   const gananciaNetaReal = ingresosTotales - costoTotalMercaderia;
   const unidadesVendidas = pedidosFiltrados.reduce((acc, p) => acc + (p.items || []).reduce((iAcc, it) => iAcc + (it.cantidad || 1), 0), 0);
 
-  // Motor ExcelJS con los 15 rangos y estructura contable multinacional
+  // Motor ExcelJS institucional con cabecera en Azul Petróleo (#002D62)
   const exportarBalanceExcelJS = async () => {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Atelier ROSSELY';
@@ -228,7 +243,7 @@ export default function AdminDashboardView() {
     const titleCell = worksheet.getCell('A1');
     titleCell.value = 'ATELIER ROSSELY — BALANCE FINANCIERO Y CONTROL DE OPERACIONES';
     titleCell.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FFFFFFFF' } };
-    titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF701A3B' } };
+    titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF002D62' } }; // Azul Petróleo
     titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
     worksheet.getRow(1).height = 40;
 
@@ -246,7 +261,7 @@ export default function AdminDashboardView() {
     headerRow.height = 28;
     headerRow.eachCell((cell) => {
       cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF701A3B' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF002D62' } }; // Azul Petróleo
       cell.alignment = { horizontal: 'center', vertical: 'middle' };
     });
 
@@ -270,6 +285,24 @@ export default function AdminDashboardView() {
       });
     });
 
+    const lastRowIndex = rowIndex - 1;
+    const totalRow = worksheet.getRow(rowIndex);
+    totalRow.values = [
+      'TOTAL GENERAL', '', '', '', '', '',
+      { formula: `SUM(G5:G${lastRowIndex})` },
+      { formula: `SUM(H5:H${lastRowIndex})` },
+      { formula: `SUM(I5:I${lastRowIndex})` },
+      { formula: `SUM(J5:J${lastRowIndex})` },
+      ''
+    ];
+    totalRow.height = 28;
+    totalRow.eachCell((cell, colNumber) => {
+      cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF002D62' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+      cell.border = { top: { style: 'thin' }, bottom: { style: 'double' } };
+      if (colNumber >= 8 && colNumber <= 10) cell.numFmt = '"S/ "#,##0.00;[Red]-"S/ "#,##0.00;"S/ "0.00';
+    });
+
     worksheet.columns = [{ width: 15 }, { width: 18 }, { width: 20 }, { width: 24 }, { width: 26 }, { width: 38 }, { width: 10 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 14 }];
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), `Balance_ROSSELY_${Date.now()}.xlsx`);
@@ -291,13 +324,21 @@ export default function AdminDashboardView() {
         </div>
       )}
 
-      {toastMsg && <div className="fixed bottom-6 right-6 z-50 bg-[#1C1819] text-[#F8D7E0] p-4 rounded-2xl shadow-xl text-xs font-bold">{toastMsg}</div>}
+      {toastMsg && (
+        <div className="fixed bottom-6 right-6 z-50 bg-[#1C1819] text-[#F8D7E0] p-4 rounded-2xl shadow-xl text-xs font-bold flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 text-emerald-400" />
+          <span>{toastMsg}</span>
+        </div>
+      )}
 
+      {/* Pestañas de Navegación del Panel (7 Pestañas Requeridas) */}
       <div className="flex flex-wrap gap-2 p-1.5 bg-white border border-[#F8D7E0] rounded-2xl shadow-xs">
         <button onClick={() => setTabActiva('inventario')} className={`px-4 py-2 rounded-xl text-xs font-bold ${tabActiva === 'inventario' ? 'bg-[#701A3B] text-white' : 'text-stone-600'}`}>Inventario</button>
         <button onClick={() => setTabActiva('pedidos')} className={`px-4 py-2 rounded-xl text-xs font-bold ${tabActiva === 'pedidos' ? 'bg-[#701A3B] text-white' : 'text-stone-600'}`}>Envíos ({pedidos.length})</button>
         <button onClick={() => setTabActiva('balance')} className={`px-4 py-2 rounded-xl text-xs font-bold ${tabActiva === 'balance' ? 'bg-[#701A3B] text-white' : 'text-stone-600'}`}>Balance</button>
         <button onClick={() => setTabActiva('mensajes')} className={`px-4 py-2 rounded-xl text-xs font-bold ${tabActiva === 'mensajes' ? 'bg-[#701A3B] text-white' : 'text-stone-600'}`}>Asesoría ({chatsNoLeidosCount})</button>
+        <button onClick={() => setTabActiva('config')} className={`px-4 py-2 rounded-xl text-xs font-bold ${tabActiva === 'config' ? 'bg-[#701A3B] text-white' : 'text-stone-600'}`}>Nocturno</button>
+        <button onClick={() => setTabActiva('vip')} className={`px-4 py-2 rounded-xl text-xs font-bold ${tabActiva === 'vip' ? 'bg-[#701A3B] text-white' : 'text-stone-600'}`}>VIP & Metas</button>
         <button onClick={() => setTabActiva('suscripciones')} className={`px-4 py-2 rounded-xl text-xs font-bold ${tabActiva === 'suscripciones' ? 'bg-[#701A3B] text-white' : 'text-stone-600'}`}>Suscripciones ({pendientesSuscripcionCount})</button>
       </div>
 
@@ -380,8 +421,8 @@ export default function AdminDashboardView() {
             ))}
           </div>
           <div className="flex justify-between items-center">
-            <h3 className="font-serif text-lg font-bold">Balance Financiero Gerencial</h3>
-            <button onClick={exportarBalanceExcelJS} className="bg-emerald-700 text-white px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2">
+            <h3 className="font-serif text-lg font-bold">Balance Financiero Gerencial (15 Rangos)</h3>
+            <button onClick={exportarBalanceExcelJS} className="bg-[#002D62] text-white px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2">
               <FileSpreadsheet className="w-4 h-4" /> Exportar a Excel (.xlsx)
             </button>
           </div>
@@ -393,6 +434,66 @@ export default function AdminDashboardView() {
           </div>
         </div>
       )}
+
+      {tabActiva === 'config' && (
+        <div className="bg-white p-8 rounded-3xl border border-[#FCE4EC] shadow-xs max-w-2xl space-y-6">
+          <h3 className="font-serif text-lg font-bold text-stone-900">Control de Experiencia Nocturna</h3>
+          <form onSubmit={async (e) => {
+            e.preventDefault();
+            setGuardandoConfig(true);
+            await setDoc(doc(db, 'configuracion', 'experiencia_nocturna'), configNocturna, { merge: true });
+            setGuardandoConfig(false);
+            mostrarToast("✦ Configuración nocturna guardada.");
+          }} className="space-y-4 text-xs">
+            <div>
+              <label className="block font-bold mb-1">Mensaje Nocturno</label>
+              <input type="text" value={configNocturna.mensaje} onChange={(ev)=>setConfigNocturna({...configNocturna, mensaje: ev.target.value})} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl p-3" />
+            </div>
+            <button type="submit" disabled={guardandoConfig} className="bg-[#701A3B] text-white px-6 py-3 rounded-xl font-bold uppercase tracking-wider cursor-pointer">
+              Guardar Configuración
+            </button>
+          </form>
+        </div>
+      )}
+
+      {tabActiva === 'vip' && (() => {
+        const resumenClientes = {};
+        pedidos.forEach(p => {
+          const email = p.cliente?.email || p.cliente?.correo || 'visitante@rossely.pe';
+          const nombre = p.cliente?.nombre || 'Cliente ROSSELY';
+          const totalPedido = parseFloat(p.subtotal || p.total) || 0;
+          if (!resumenClientes[email]) {
+            resumenClientes[email] = { nombre, email, ciudad: p.cliente?.ciudad || 'Destino', gastoTotal: 0, pedidosCliente: [] };
+          }
+          resumenClientes[email].gastoTotal += totalPedido;
+          resumenClientes[email].pedidosCliente.push(p);
+        });
+        const listaVIP = Object.values(resumenClientes).map(c => {
+          const membresia = calcularMembresiaRuleta(c.pedidosCliente);
+          return { ...c, ...membresia };
+        }).sort((a, b) => b.gastoTotal - a.gastoTotal);
+
+        return (
+          <div className="bg-white p-8 rounded-3xl border border-[#FCE4EC] space-y-6">
+            <h3 className="font-serif text-lg font-bold">Métricas de Consumo y Niveles (VIP / Golden)</h3>
+            <table className="w-full text-left text-xs">
+              <thead className="bg-[#FFF5F7] text-[#701A3B] uppercase text-[10px] font-bold">
+                <tr><th className="py-3 px-4">Clienta</th><th className="py-3 px-4">Destino</th><th className="py-3 px-4">Gasto Total</th><th className="py-3 px-4">Estatus Ruleta</th></tr>
+              </thead>
+              <tbody className="divide-y">
+                {listaVIP.map((c, i) => (
+                  <tr key={i}>
+                    <td className="py-3 px-4 font-bold">{c.nombre} <span className="block text-[10px] text-stone-400">{c.email}</span></td>
+                    <td className="py-3 px-4">{c.ciudad}</td>
+                    <td className="py-3 px-4 font-bold">S/. {c.gastoTotal.toFixed(2)}</td>
+                    <td className="py-3 px-4"><span className="px-2 py-1 rounded-full text-[10px] font-bold bg-[#701A3B] text-white">{c.nivel}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
 
       {tabActiva === 'suscripciones' && (
         <div className="bg-white p-8 rounded-3xl border border-[#FCE4EC] space-y-4">

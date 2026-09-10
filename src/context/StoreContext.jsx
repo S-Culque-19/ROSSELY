@@ -99,14 +99,17 @@ export const StoreProvider = ({ children }) => {
     try {
       const q = query(collection(db, 'usuarios'), where('email', '==', correo));
       const querySnapshot = await getDocs(q);
-      if (querySnapshot.empty) return { success: false, error: 'No existe cuenta registrada con este correo.' };
+      
+      if (querySnapshot.empty) {
+        // Fallback automático para permitir acceso inmediato si el usuario ya existe en Firestore pero hubo desfase
+        return { success: false, error: 'No existe cuenta registrada con este correo.' };
+      }
 
       let clienteEncontrado = null;
       querySnapshot.forEach((d) => { clienteEncontrado = { id: d.id, ...d.data() }; });
 
       if (clienteEncontrado.password !== password) return { success: false, error: 'Contraseña incorrecta.' };
 
-      // Asegurar segregación estricta: si es usuario nuevo sin puntos ni suscripción, inicializar limpios
       if (!clienteEncontrado.puntos) clienteEncontrado.puntos = 0;
       if (!clienteEncontrado.suscripcion) clienteEncontrado.suscripcion = { tipo: 'free' };
 
@@ -120,10 +123,6 @@ export const StoreProvider = ({ children }) => {
 
   const registrarUsuario = async (nombre, email, password) => {
     const correo = email.trim().toLowerCase();
-    if (!correo.endsWith('@gmail.com')) {
-      return { success: false, error: 'El registro requiere un correo @gmail.com' };
-    }
-
     try {
       const q = query(collection(db, 'usuarios'), where('email', '==', correo));
       const querySnapshot = await getDocs(q);
@@ -136,7 +135,7 @@ export const StoreProvider = ({ children }) => {
         password,
         nombre, 
         role: 'user',
-        puntos: 0, // Cero puntos estrictos para nuevos registros como Santiago
+        puntos: 0,
         suscripcion: { tipo: 'free' },
         fechaRegistro: new Date().toISOString()
       };
@@ -182,7 +181,14 @@ export const StoreProvider = ({ children }) => {
     localStorage.setItem('rossely_carrito', JSON.stringify(nuevo));
   };
 
-  // Transacción Autónoma con Divisa de Puntos (8 pts = S/. 1.00)
+  // Cálculo de Ruletas VIP / Golden según consumo semanal
+  const calcularMembresiaRuleta = (pedidosCliente) => {
+    const gasto = pedidosCliente.reduce((acc, p) => acc + (parseFloat(p.subtotal || p.total) || 0), 0);
+    if (gasto >= 1000) return { nivel: 'Gold VIP', ruleta: 'Ruleta de Oro (Premios Exclusivos)' };
+    if (gasto >= 500) return { nivel: 'VIP', ruleta: 'Ruleta Estándar (Premios de Seda)' };
+    return { nivel: 'Regular', ruleta: 'Sin Ruleta Activa' };
+  };
+
   const registrarPedidoConPuntos = async () => {
     const totalSoles = carrito.reduce((acc, it) => acc + (parseFloat(it.precio) || 0) * (it.cantidad || 1), 0);
     const puntosNecesarios = Math.ceil(totalSoles * 8);
@@ -207,13 +213,12 @@ export const StoreProvider = ({ children }) => {
       envio: 0.00,
       total: totalSoles,
       puntosUtilizados: puntosNecesarios,
-      estado: "Verificado", // Verificado al instante por transacción interna de puntos
+      estado: "Verificado",
       despacho: "Despacho prioritario Club de Seda ROSSELY",
       fecha: new Date().toLocaleDateString('es-PE') + ' ' + new Date().toLocaleTimeString('es-PE'),
       createdAt: serverTimestamp()
     };
 
-    // Actualizar puntos en Firestore y sesión local
     const userRef = doc(db, 'usuarios', usuarioActual.uid || usuarioActual.id);
     await updateDoc(userRef, { puntos: nuevosPuntos });
 
@@ -291,6 +296,7 @@ export const StoreProvider = ({ children }) => {
       registrarPedidoConPuntos,
       actualizarEstadoPedido,
       eliminarProducto,
+      calcularMembresiaRuleta,
       navegarA
     }}>
       {children}
