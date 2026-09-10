@@ -1,5 +1,6 @@
 // ============================================================================
-// 3. COMPONENTE GERENCIAL MAESTRO (src/views/AdminDashboardView.jsx)
+// ADMIN DASHBOARD VIEW (src/views/AdminDashboardView.jsx)
+// Versión definitiva y ultra limpia con validación directa por URL.
 // ============================================================================
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../context/StoreContext';
@@ -30,7 +31,6 @@ import {
   ShieldAlert,
   Send,
   Eye,
-  Sparkles,
   Check
 } from 'lucide-react';
 
@@ -44,25 +44,21 @@ export default function AdminDashboardView() {
   const [costoUnitario, setCostoUnitario] = useState('');
   const [coleccionSeleccionada, setColeccionSeleccionada] = useState(colecciones[0]?.nombre || 'Colección Exclusiva');
   
-  // Unidades específicas por cada talla
   const [unidadesS, setUnidadesS] = useState('5');
   const [unidadesM, setUnidadesM] = useState('8');
   const [unidadesL, setUnidadesL] = useState('5');
   const [unidadesXL, setUnidadesXL] = useState('2');
   const [descripcion, setDescripcion] = useState('');
 
-  // Estados para subida de fotos una por una en tiempo real
-  const [fotosCola, setFotosCola] = useState([]); // Array de objetos: { file, preview, progreso, url, subiendo }
+  const [fotosCola, setFotosCola] = useState([]);
   const [guardando, setGuardando] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
   const [diasFiltro, setDiasFiltro] = useState(30);
 
-  // Estados para avisos gerenciales
   const [tituloAviso, setTituloAviso] = useState('');
   const [mensajeAviso, setMensajeAviso] = useState('');
   const [tipoDestinatario, setTipoDestinatario] = useState('todos');
 
-  // Estados del Editor Avanzado de Producto
   const [productoEnEdicion, setProductoEnEdicion] = useState(null);
   const [editNombre, setEditNombre] = useState('');
   const [editPrecio, setEditPrecio] = useState('');
@@ -74,16 +70,13 @@ export default function AdminDashboardView() {
   const [editL, setEditL] = useState('0');
   const [editXL, setEditXL] = useState('0');
 
-  // Visor de imagen grande
   const [imagenModalGrande, setImagenModalGrande] = useState(null);
-
   const [nuevaColeccionInput, setNuevaColeccionInput] = useState('');
   const [chats, setChats] = useState([]);
   const [chatSeleccionado, setChatSeleccionado] = useState(null);
   const [mensajesChat, setMensajesChat] = useState([]);
   const [respuestaAdmin, setRespuestaAdmin] = useState('');
   const scrollChatRef = useRef(null);
-
   const [suscripcionesPendientes, setSuscripcionesPendientes] = useState([]);
   const [configNocturna, setConfigNocturna] = useState({ activo: true, mensaje: "El confort de la seda te espera esta noche..." });
 
@@ -145,7 +138,6 @@ export default function AdminDashboardView() {
     return () => unsub();
   }, [chatSeleccionado?.id]);
 
-  // Selección de archivos uno por uno y subida asíncrona a Firebase Storage con progreso
   const handleAgregarFotosCola = async (e) => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
@@ -153,30 +145,28 @@ export default function AdminDashboardView() {
     for (const file of files) {
       const newItem = {
         id: Date.now() + Math.random(),
-        file,
         preview: URL.createObjectURL(file),
         progreso: 0,
         url: '',
-        subiendo: true,
-        completado: false
+        subiendo: true
       };
 
       setFotosCola(prev => [...prev, newItem]);
 
       try {
-        const downloadUrl = await subirImagenConProgreso(file, (progresoPct) => {
-          setFotosCola(prev => prev.map(item => item.id === newItem.id ? { ...item, progreso: progresoPct } : item));
+        const downloadUrl = await subirImagenConProgreso(file, (pct) => {
+          setFotosCola(prev => prev.map(item => item.id === newItem.id ? { ...item, progreso: pct } : item));
         });
 
         setFotosCola(prev => prev.map(item => item.id === newItem.id ? { 
           ...item, 
           url: downloadUrl, 
           subiendo: false, 
-          completado: true 
+          progreso: 100 
         } : item));
       } catch (err) {
-        console.error("Error subiendo foto individual:", err);
-        alert(`Error al subir la imagen ${file.name}. Verifique su conexión.`);
+        console.error("Error subiendo foto:", err);
+        alert(`Error al subir la imagen ${file.name}.`);
         setFotosCola(prev => prev.filter(item => item.id !== newItem.id));
       }
     }
@@ -186,7 +176,6 @@ export default function AdminDashboardView() {
     setFotosCola(prev => prev.filter(item => item.id !== id));
   };
 
-  // Guardado principal blindado con try/catch/finally
   const handleGuardarProducto = async (e) => {
     e.preventDefault();
     if (!nombre.trim() || !precio || !costoUnitario) {
@@ -194,17 +183,18 @@ export default function AdminDashboardView() {
       return;
     }
 
-    const fotosCompletadas = fotosCola.filter(f => f.completado && f.url);
-    if (fotosCompletadas.length === 0) {
-      alert("Debe subir al menos una fotografía a Firebase Storage antes de publicar.");
+    // VALIDACIÓN DIRECTA POR URL (Asegura que pasen las fotos que ya tienen enlace)
+    const fotosListas = fotosCola.filter(f => f.url);
+    if (fotosListas.length === 0) {
+      alert("Debe esperar a que al menos una fotografía termine de subir a Firebase Storage antes de publicar.");
       return;
     }
 
     setGuardando(true);
 
     try {
-      const urlsMultimedia = fotosCompletadas.map(f => f.url);
-      const imagenPrincipal = urlsMultimedia[0]; // LA PRIMERA ES SÍ O SÍ LA PORTADA PRINCIPAL
+      const urlsMultimedia = fotosListas.map(f => f.url);
+      const imagenPrincipal = urlsMultimedia[0];
 
       const tallasMatriz = {
         S: parseInt(unidadesS, 10) || 0,
@@ -231,7 +221,7 @@ export default function AdminDashboardView() {
         createdAt: serverTimestamp()
       });
 
-      mostrarToast("✦ ¡Prenda de alta costura sincronizada y publicada con éxito!");
+      mostrarToast("✦ ¡Prenda de alta costura publicada con éxito!");
       setNombre('');
       setPrecio('');
       setCostoUnitario('');
@@ -242,10 +232,9 @@ export default function AdminDashboardView() {
       setUnidadesL('5');
       setUnidadesXL('2');
     } catch (err) {
-      console.error("Error crítico al registrar producto:", err);
-      alert("Error al guardar en base de datos. Revise la consola.");
+      console.error("Error al registrar producto:", err);
+      alert("Error al guardar en base de datos.");
     } finally {
-      // Bloque finally estrictamente blindado contra bloqueos infinitos
       setGuardando(false);
     }
   };
@@ -260,7 +249,7 @@ export default function AdminDashboardView() {
         destinatario: tipoDestinatario,
         createdAt: serverTimestamp()
       });
-      mostrarToast("✦ Aviso gerencial enviado con éxito a los clientes.");
+      mostrarToast("✦ Aviso gerencial enviado con éxito.");
       setTituloAviso('');
       setMensajeAviso('');
     } catch (e) {
@@ -445,7 +434,6 @@ export default function AdminDashboardView() {
         </div>
       )}
 
-      {/* Navegación del Panel */}
       <div className="flex flex-wrap gap-2 p-1.5 bg-white border border-[#F8D7E0] rounded-2xl shadow-xs">
         <button onClick={() => setTabActiva('inventario')} className={`px-4 py-2 rounded-xl text-xs font-bold ${tabActiva === 'inventario' ? 'bg-[#701A3B] text-white' : 'text-stone-600'}`}>Inventario & Colecciones</button>
         <button onClick={() => setTabActiva('pedidos')} className={`px-4 py-2 rounded-xl text-xs font-bold ${tabActiva === 'pedidos' ? 'bg-[#701A3B] text-white' : 'text-stone-600'}`}>Envíos ({pedidos.length})</button>
@@ -460,9 +448,8 @@ export default function AdminDashboardView() {
         <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-10">
           <div className="lg:col-span-5 space-y-6">
             
-            {/* Formulario de Publicación con Subida Real a Storage Uno por Uno */}
             <form onSubmit={handleGuardarProducto} className="bg-white p-7 rounded-3xl border border-[#FCE4EC] space-y-4 shadow-sm">
-              <h3 className="font-serif text-lg font-bold text-stone-900">Publicar Prenda (Subida Real a Storage)</h3>
+              <h3 className="font-serif text-lg font-bold text-stone-900">Publicar Prenda (Firebase Storage)</h3>
               <input type="text" required placeholder="Nombre de la prenda o set" value={nombre} onChange={e => setNombre(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none" />
               
               <div className="grid grid-cols-2 gap-3">
@@ -476,7 +463,6 @@ export default function AdminDashboardView() {
                 </div>
               </div>
 
-              {/* Unidades por Talla */}
               <div className="p-4 bg-[#FFFBFB] rounded-2xl border border-[#F8D7E0] space-y-2">
                 <p className="text-[11px] font-bold text-[#701A3B]">Unidades disponibles por cada Talla:</p>
                 <div className="grid grid-cols-4 gap-2 text-center">
@@ -506,12 +492,11 @@ export default function AdminDashboardView() {
                 </select>
               </div>
 
-              {/* GESTIÓN DE FOTOGRAFÍAS UNA POR UNA CON PROGRESO INDEPENDIENTE */}
               <div>
                 <label className="block text-[11px] font-bold text-stone-700 mb-1">Fotografías (La 1ra será la Portada Principal)</label>
                 <label className="w-full border-2 border-dashed border-[#F8D7E0] hover:border-[#701A3B] rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-[#FFFBFB] transition">
                   <UploadCloud className="w-6 h-6 text-[#701A3B] mb-1" />
-                  <span className="text-xs text-stone-700 font-bold">Seleccionar fotografías (una por una o varias)</span>
+                  <span className="text-xs text-stone-700 font-bold">Seleccionar fotografías</span>
                   <input type="file" multiple accept="image/*" onChange={handleAgregarFotosCola} className="hidden" />
                 </label>
 
@@ -525,11 +510,11 @@ export default function AdminDashboardView() {
                             <p className="text-[11px] font-bold text-stone-800">
                               {idx === 0 ? '★ Portada Principal' : `Foto #${idx + 1}`}
                             </p>
-                            {item.subtrying || item.subiendo ? (
-                              <p className="text-[10px] text-[#701A3B] font-semibold">Subiendo a Storage: {item.progreso}%</p>
+                            {item.subiendo ? (
+                              <p className="text-[10px] text-[#701A3B] font-semibold">Subiendo: {item.progreso}%</p>
                             ) : (
                               <p className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-                                <Check className="w-3 h-3" /> Subido a Firebase Storage
+                                <Check className="w-3 h-3" /> Listo en Storage
                               </p>
                             )}
                           </div>
@@ -547,7 +532,7 @@ export default function AdminDashboardView() {
                 {guardando ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin text-[#D4AF37]" />
-                    <span>Sincronizando inventario...</span>
+                    <span>Guardando producto...</span>
                   </>
                 ) : (
                   'Publicar Prenda al Instante'
@@ -555,7 +540,6 @@ export default function AdminDashboardView() {
               </button>
             </form>
 
-            {/* Apartado para Crear Nueva Colección */}
             <form onSubmit={handleCrearColeccion} className="bg-white p-6 rounded-3xl border border-[#FCE4EC] space-y-3">
               <h4 className="font-serif font-bold text-sm text-stone-900">Añadir Nueva Colección o Edición</h4>
               <div className="flex gap-2">
@@ -567,7 +551,6 @@ export default function AdminDashboardView() {
             </form>
           </div>
 
-          {/* Catálogo del Administrador */}
           <div className="lg:col-span-7 bg-white p-7 rounded-3xl border border-[#FCE4EC] space-y-4">
             <h3 className="font-serif text-lg font-bold text-stone-900">Catálogo Actual & Edición en Vivo ({productos.length})</h3>
             <div className="space-y-3 max-h-[700px] overflow-y-auto pr-2">
@@ -597,7 +580,6 @@ export default function AdminDashboardView() {
         </div>
       )}
 
-      {/* MODAL DE VISTA PREVIA GRANDE DE LA IMAGEN */}
       {imagenModalGrande && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="relative max-w-3xl w-full bg-white rounded-3xl p-4 overflow-hidden flex flex-col items-center">
@@ -607,7 +589,6 @@ export default function AdminDashboardView() {
         </div>
       )}
 
-      {/* MODAL DE EDICIÓN AVANZADA */}
       {productoEnEdicion && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <form onSubmit={guardarEdicionProducto} className="bg-white p-8 rounded-3xl max-w-lg w-full space-y-4 max-h-[90vh] overflow-y-auto shadow-2xl">
