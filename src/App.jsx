@@ -4,7 +4,7 @@ import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import SupportChatbot from './components/SupportChatbot';
 import LoyaltyWalletCard from './components/LoyaltyWalletCard';
-import SubscriptionBannerWidget from './components/SubscriptionBannerWidget';
+import SubscriptionWidget from './components/SubscriptionWidget';
 
 import HomeView from './views/HomeView';
 import CatalogView from './views/CatalogView';
@@ -44,10 +44,9 @@ export default function App() {
         <Navbar busqueda={busqueda} setBusqueda={setBusqueda} />
         <MainContent busqueda={busqueda} />
         <Footer />
-        {/* Componentes Flotantes Globales */}
         <SupportChatbot />
         <LoyaltyWalletCard />
-        <SubscriptionBannerWidget />
+        <SubscriptionWidget />
       </div>
     </StoreProvider>
   );
