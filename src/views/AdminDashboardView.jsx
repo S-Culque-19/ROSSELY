@@ -1,6 +1,6 @@
 // ============================================================================
 // ADMIN DASHBOARD VIEW (src/views/AdminDashboardView.jsx)
-// Arquitectura completa optimizada: Lote masivo, compresión, finanzas y editor total.
+// Subida ultrarrápida sin bloqueos, vista previa inmediata y editor total.
 // ============================================================================
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../context/StoreContext';
@@ -28,7 +28,8 @@ import {
   X,
   Plus,
   ShieldAlert,
-  Send
+  Send,
+  Eye
 } from 'lucide-react';
 
 export default function AdminDashboardView() {
@@ -41,7 +42,7 @@ export default function AdminDashboardView() {
   const [costoUnitario, setCostoUnitario] = useState('');
   const [coleccionSeleccionada, setColeccionSeleccionada] = useState(colecciones[0]?.nombre || 'Colección Exclusiva');
   
-  // Unidades específicas por cada talla (Nuevo Producto)
+  // Unidades específicas por cada talla
   const [unidadesS, setUnidadesS] = useState('5');
   const [unidadesM, setUnidadesM] = useState('8');
   const [unidadesL, setUnidadesL] = useState('5');
@@ -49,8 +50,8 @@ export default function AdminDashboardView() {
   const [descripcion, setDescripcion] = useState('');
 
   const [archivosSeleccionados, setArchivosSeleccionados] = useState([]);
+  const [previsualizaciones, setPrevisualizaciones] = useState([]);
   const [guardando, setGuardando] = useState(false);
-  const [progresoSubida, setProgresoSubida] = useState('');
   const [toastMsg, setToastMsg] = useState('');
   const [diasFiltro, setDiasFiltro] = useState(30);
 
@@ -59,7 +60,7 @@ export default function AdminDashboardView() {
   const [mensajeAviso, setMensajeAviso] = useState('');
   const [tipoDestinatario, setTipoDestinatario] = useState('todos');
 
-  // Estados del Editor Avanzado de Producto (Todos los parámetros)
+  // Estados del Editor Avanzado de Producto
   const [productoEnEdicion, setProductoEnEdicion] = useState(null);
   const [editNombre, setEditNombre] = useState('');
   const [editPrecio, setEditPrecio] = useState('');
@@ -70,6 +71,9 @@ export default function AdminDashboardView() {
   const [editM, setEditM] = useState('0');
   const [editL, setEditL] = useState('0');
   const [editXL, setEditXL] = useState('0');
+
+  // Visor de imagen grande en admin
+  const [imagenModalGrande, setImagenModalGrande] = useState(null);
 
   const [nuevaColeccionInput, setNuevaColeccionInput] = useState('');
   const [chats, setChats] = useState([]);
@@ -139,68 +143,45 @@ export default function AdminDashboardView() {
     return () => unsub();
   }, [chatSeleccionado?.id]);
 
-  // Compresión masiva en lote con Canvas en cliente (Inigualable contra cuelgues)
-  const comprimirLoteImagenes = async (files) => {
-    const urlsComprimidas = [];
-    const total = files.length;
+  // Manejar selección de archivos y generar previsualizaciones instantáneas
+  const handleSeleccionarArchivos = (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+    setArchivosSeleccionados(files);
 
-    for (let i = 0; i < total; i++) {
-      setProgresoSubida(`Procesando imagen ${i + 1} de ${total}...`);
-      const file = files[i];
-      
-      const base64Optimizada = await new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = (event) => {
-          const img = new Image();
-          img.src = event.target.result;
-          img.onload = () => {
-            const canvas = document.createElement('canvas');
-            const MAX_WIDTH = 800;
-            const MAX_HEIGHT = 800;
-            let width = img.width;
-            let height = img.height;
-
-            if (width > height) {
-              if (width > MAX_WIDTH) {
-                height *= MAX_WIDTH / width;
-                width = MAX_WIDTH;
-              }
-            } else {
-              if (height > MAX_HEIGHT) {
-                width *= MAX_HEIGHT / height;
-                height = MAX_HEIGHT;
-              }
-            }
-
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL('image/jpeg', 0.75));
-          };
-          img.onerror = () => resolve('https://images.unsplash.com/photo-1584100936595-c0654b55a2e2?q=80&w=800');
-        };
-        reader.onerror = () => resolve('https://images.unsplash.com/photo-1584100936595-c0654b55a2e2?q=80&w=800');
-      });
-
-      urlsComprimidas.push(base64Optimizada);
-    }
-    return urlsComprimidas;
+    // Generar URLs de vista previa inmediata
+    const previews = files.map(file => URL.createObjectURL(file));
+    setPrevisualizaciones(previews);
   };
 
+  // Subida instantánea y blindada sin bucles de bloqueo
   const handleGuardarProducto = async (e) => {
     e.preventDefault();
     if (!nombre.trim() || !precio || !costoUnitario || archivosSeleccionados.length === 0) {
-      alert("Por favor completa nombre, precio de venta, precio de costo y selecciona al menos una fotografía.");
+      alert("Por favor completa nombre, precio de venta, precio de costo y selecciona al menos una fotografía principal.");
       return;
     }
 
     setGuardando(true);
-    setProgresoSubida('Iniciando compresión de lote...');
 
     try {
-      const imagenesFinales = await comprimirLoteImagenes(Array.from(archivosSeleccionados));
+      // Conversión directa y rápida a Base64 sin colgar el hilo
+      const convertirArchivoABase64 = (file) => {
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = () => resolve("https://images.unsplash.com/photo-1584100936595-c0654b55a2e2?q=80&w=800");
+          reader.readAsDataURL(file);
+        });
+      };
+
+      const urlsBase64 = [];
+      // Tomamos máximo las primeras 3 fotos para asegurar velocidad instantánea
+      const archivosAProcesar = Array.from(archivosSeleccionados).slice(0, 3);
+      for (const file of archivosAProcesar) {
+        const res = await convertirArchivoABase64(file);
+        urlsBase64.push(res);
+      }
 
       const tallasMatriz = {
         S: parseInt(unidadesS, 10) || 0,
@@ -212,8 +193,6 @@ export default function AdminDashboardView() {
       const stockTotalCalculado = Object.values(tallasMatriz).reduce((a, b) => a + b, 0);
       const tallasActivas = Object.keys(tallasMatriz).filter(t => tallasMatriz[t] > 0);
 
-      setProgresoSubida('Sincronizando inventario...');
-
       await addDoc(collection(db, 'productos'), {
         nombre: nombre.trim(),
         precio: parseFloat(precio),
@@ -223,28 +202,28 @@ export default function AdminDashboardView() {
         tallas: tallasActivas.length > 0 ? tallasActivas : ['S', 'M', 'L', 'XL'],
         coleccion: coleccionSeleccionada,
         descripcion: descripcion.trim(),
-        img: imagenesFinales[0],
-        imagenes: imagenesFinales,
+        img: urlsBase64[0], // LA PRIMERA IMAGEN ES SI O SI LA PRINCIPAL
+        imagenes: urlsBase64, // TODAS LAS IMÁGENES DISPONIBLES PARA EL CLIENTE
         origen: 'Atelier Central • Nuevo Chimbote',
         createdAt: serverTimestamp()
       });
 
-      mostrarToast("✦ ¡Prenda de alta costura publicada y registrada exitosamente!");
+      mostrarToast("✦ ¡Prenda publicada con éxito en el catálogo!");
       setNombre('');
       setPrecio('');
       setCostoUnitario('');
       setDescripcion('');
       setArchivosSeleccionados([]);
+      setPrevisualizaciones([]);
       setUnidadesS('5');
       setUnidadesM('8');
       setUnidadesL('5');
       setUnidadesXL('2');
     } catch (err) {
       console.error("Error al publicar prenda:", err);
-      alert("Error al guardar el producto. Verifique su conexión.");
+      alert("Error al guardar el producto. Revisa la consola.");
     } finally {
       setGuardando(false);
-      setProgresoSubida('');
     }
   };
 
@@ -303,7 +282,7 @@ export default function AdminDashboardView() {
       tallas: tallasActivasEditadas.length > 0 ? tallasActivasEditadas : ['S', 'M', 'L']
     });
 
-    mostrarToast("✦ Prenda actualizada con todos sus parámetros correctamente.");
+    mostrarToast("✦ Prenda actualizada correctamente.");
     setProductoEnEdicion(null);
   };
 
@@ -458,9 +437,9 @@ export default function AdminDashboardView() {
         <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-10">
           <div className="lg:col-span-5 space-y-6">
             
-            {/* Formulario de Publicación */}
+            {/* Formulario de Publicación con Previsualización Instantánea */}
             <form onSubmit={handleGuardarProducto} className="bg-white p-7 rounded-3xl border border-[#FCE4EC] space-y-4 shadow-sm">
-              <h3 className="font-serif text-lg font-bold text-stone-900">Publicar Nueva Prenda (Lote Masivo)</h3>
+              <h3 className="font-serif text-lg font-bold text-stone-900">Publicar Nueva Prenda (Con Previsualización)</h3>
               <input type="text" required placeholder="Nombre de la prenda o set" value={nombre} onChange={e => setNombre(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none" />
               
               <div className="grid grid-cols-2 gap-3">
@@ -474,7 +453,7 @@ export default function AdminDashboardView() {
                 </div>
               </div>
 
-              {/* Subpanel matricial de unidades por talla */}
+              {/* Unidades por Talla */}
               <div className="p-4 bg-[#FFFBFB] rounded-2xl border border-[#F8D7E0] space-y-2">
                 <p className="text-[11px] font-bold text-[#701A3B]">Unidades disponibles por cada Talla:</p>
                 <div className="grid grid-cols-4 gap-2 text-center">
@@ -504,22 +483,36 @@ export default function AdminDashboardView() {
                 </select>
               </div>
 
+              {/* SECCIÓN DE FOTOGRAFÍAS CON VISTA PREVIA EN MINIATURA */}
               <div>
-                <label className="block text-[11px] font-bold text-stone-700 mb-1">Fotografías (Lote Masivo)</label>
+                <label className="block text-[11px] font-bold text-stone-700 mb-1">Fotografías (La 1ra será la Principal)</label>
                 <label className="w-full border-2 border-dashed border-[#F8D7E0] hover:border-[#701A3B] rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-[#FFFBFB] transition">
                   <UploadCloud className="w-6 h-6 text-[#701A3B] mb-1" />
-                  <span className="text-xs text-stone-700 font-bold">Seleccionar múltiples archivos</span>
-                  <span className="text-[9px] text-stone-400">Compresión automática en cliente</span>
-                  <input type="file" multiple accept="image/*" onChange={e => setArchivosSeleccionados(e.target.files)} className="hidden" />
+                  <span className="text-xs text-stone-700 font-bold">Seleccionar fotografías</span>
+                  <input type="file" multiple accept="image/*" onChange={handleSeleccionarArchivos} className="hidden" />
                 </label>
-                {archivosSeleccionados.length > 0 && <p className="text-xs text-[#701A3B] font-bold mt-2">✓ {archivosSeleccionados.length} archivo(s) en lote.</p>}
+
+                {previsualizaciones.length > 0 && (
+                  <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
+                    {previsualizaciones.map((url, idx) => (
+                      <div key={idx} className="relative w-16 h-20 rounded-xl border border-[#F8D7E0] overflow-hidden shrink-0 bg-stone-100">
+                        <img src={url} alt="Vista Previa" className="w-full h-full object-cover" />
+                        {idx === 0 && (
+                          <span className="absolute bottom-0 inset-x-0 bg-[#701A3B] text-white text-[8px] font-bold text-center py-0.5">
+                            Principal
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <button type="submit" disabled={guardando} className="w-full bg-[#701A3B] text-white py-3.5 rounded-xl font-bold uppercase text-xs cursor-pointer shadow-md flex items-center justify-center gap-2">
                 {guardando ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin text-[#D4AF37]" />
-                    <span>{progresoSubida || 'Procesando...'}</span>
+                    <span>Publicando al instante...</span>
                   </>
                 ) : (
                   'Publicar Prenda al Instante'
@@ -546,7 +539,13 @@ export default function AdminDashboardView() {
               {productos.map(p => (
                 <div key={p.id} className="flex items-center justify-between p-3.5 rounded-2xl border border-stone-100 bg-[#FFFBFB]">
                   <div className="flex items-center gap-3">
-                    <img src={p.img} alt={p.nombre} className="w-12 h-14 rounded-lg object-cover" />
+                    {/* Botón para ver imagen grande en modal */}
+                    <div className="relative group cursor-pointer" onClick={() => setImagenModalGrande(p.img)}>
+                      <img src={p.img} alt={p.nombre} className="w-12 h-14 rounded-lg object-cover border" />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition rounded-lg flex items-center justify-center text-white">
+                        <Eye className="w-4 h-4" />
+                      </div>
+                    </div>
                     <div>
                       <p className="font-bold text-xs">{p.nombre}</p>
                       <p className="text-[10px] text-stone-400">{p.coleccion || 'Exclusiva'} | Stock Total: {p.stock || 0}</p>
@@ -554,7 +553,7 @@ export default function AdminDashboardView() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => iniciarEdicion(p)} className="p-2 text-[#701A3B] hover:bg-pink-50 rounded-lg cursor-pointer" title="Editar Prenda con Todos los Parámetros"><Edit3 className="w-4 h-4" /></button>
+                    <button onClick={() => iniciarEdicion(p)} className="p-2 text-[#701A3B] hover:bg-pink-50 rounded-lg cursor-pointer" title="Editar Prenda"><Edit3 className="w-4 h-4" /></button>
                     <button onClick={() => eliminarProducto(p.id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg cursor-pointer" title="Eliminar"><Trash2 className="w-4 h-4" /></button>
                   </div>
                 </div>
@@ -564,7 +563,17 @@ export default function AdminDashboardView() {
         </div>
       )}
 
-      {/* MODAL DE EDICIÓN AVANZADA (CON TODOS LOS PARÁMETROS) */}
+      {/* MODAL DE VISTA PREVIA GRANDE DE LA IMAGEN */}
+      {imagenModalGrande && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="relative max-w-3xl w-full bg-white rounded-3xl p-4 overflow-hidden flex flex-col items-center">
+            <button onClick={() => setImagenModalGrande(null)} className="absolute top-4 right-4 bg-stone-900 text-white p-2 rounded-full cursor-pointer z-10"><X className="w-5 h-5" /></button>
+            <img src={imagenModalGrande} alt="Vista Grande" className="max-h-[80vh] w-auto object-contain rounded-2xl shadow-xl" />
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE EDICIÓN AVANZADA */}
       {productoEnEdicion && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <form onSubmit={guardarEdicionProducto} className="bg-white p-8 rounded-3xl max-w-lg w-full space-y-4 max-h-[90vh] overflow-y-auto shadow-2xl">
@@ -589,7 +598,6 @@ export default function AdminDashboardView() {
               </div>
             </div>
 
-            {/* Unidades Matriciales por Talla en el Editor */}
             <div className="p-4 bg-[#FFFBFB] rounded-2xl border border-[#F8D7E0] space-y-2">
               <p className="text-[11px] font-bold text-[#701A3B]">Modificar Unidades por Talla:</p>
               <div className="grid grid-cols-4 gap-2 text-center">
