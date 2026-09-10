@@ -137,19 +137,49 @@ export default function AdminDashboardView() {
 
     setGuardando(true);
     try {
-      const convertirABase64 = (file) => {
+      const comprimirImagenBase64 = (file) => {
         return new Promise((resolve) => {
           const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.onerror = () => resolve("https://images.unsplash.com/photo-1584100936595-c0654b55a2e2?q=80&w=800");
           reader.readAsDataURL(file);
+          reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target.result;
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const MAX_WIDTH = 600;
+              const MAX_HEIGHT = 800;
+              let width = img.width;
+              let height = img.height;
+
+              if (width > height) {
+                if (width > MAX_WIDTH) {
+                  height *= MAX_WIDTH / width;
+                  width = MAX_WIDTH;
+                }
+              } else {
+                if (height > MAX_HEIGHT) {
+                  width *= MAX_HEIGHT / height;
+                  height = MAX_HEIGHT;
+                }
+              }
+
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0, width, height);
+              resolve(canvas.toDataURL('image/jpeg', 0.7));
+            };
+            img.onerror = () => resolve("https://images.unsplash.com/photo-1584100936595-c0654b55a2e2?q=80&w=800");
+          };
+          reader.onerror = () => resolve("https://images.unsplash.com/photo-1584100936595-c0654b55a2e2?q=80&w=800");
         });
       };
 
       const urlsSubidas = [];
-      for (const file of archivosImagenes) {
-        const base64Url = await convertirABase64(file);
-        urlsSubidas.push(base64Url);
+      const archivosAProcesar = archivosImagenes.slice(0, 2);
+      for (const file of archivosAProcesar) {
+        const compressedBase64 = await comprimirImagenBase64(file);
+        urlsSubidas.push(compressedBase64);
       }
 
       const tallasObj = {
@@ -177,7 +207,7 @@ export default function AdminDashboardView() {
         createdAt: serverTimestamp()
       });
 
-      mostrarToast("✦ ¡Prenda publicada con éxito en el catálogo!");
+      mostrarToast("✦ ¡Prenda publicada y guardada con éxito!");
       setNombre(''); 
       setPrecio(''); 
       setCostoUnitario(''); 
@@ -189,7 +219,7 @@ export default function AdminDashboardView() {
       setArchivosImagenes([]);
     } catch (err) {
       console.error("Error al publicar prenda:", err);
-      alert("Error al publicar la prenda. Revisa la consola.");
+      alert("Error al guardar en Firestore. Revisa que el tamaño de las imágenes no sea excesivo.");
     } finally {
       setGuardando(false);
     }
@@ -427,7 +457,7 @@ export default function AdminDashboardView() {
 
               <label className="w-full border-2 border-dashed border-[#F8D7E0] rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-[#FFFBFB]">
                 <UploadCloud className="w-6 h-6 text-[#701A3B] mb-1" />
-                <span className="text-xs text-stone-700 font-medium">Subir fotografías (Conversión Segura)</span>
+                <span className="text-xs text-stone-700 font-medium">Subir fotografías (Comprimidas Automáticas)</span>
                 <input type="file" multiple accept="image/*" onChange={e => setArchivosImagenes(Array.from(e.target.files))} className="hidden" />
               </label>
               {archivosImagenes.length > 0 && <p className="text-xs text-[#701A3B] font-bold">{archivosImagenes.length} archivo(s) listo(s).</p>}
