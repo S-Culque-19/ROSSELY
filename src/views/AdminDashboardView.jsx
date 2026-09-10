@@ -1,3 +1,6 @@
+// ============================================================================
+// 2. ADMIN DASHBOARD VIEW (src/views/AdminDashboardView.jsx)
+// ============================================================================
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../context/StoreContext';
 import { db } from '../firebase';
@@ -11,7 +14,6 @@ import {
   orderBy, 
   serverTimestamp 
 } from 'firebase/firestore';
-import { subirFotoProducto } from '../services/storageService';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { 
@@ -38,7 +40,6 @@ export default function AdminDashboardView() {
   const [costoUnitario, setCostoUnitario] = useState('');
   const [coleccionSeleccionada, setColeccionSeleccionada] = useState(colecciones[0]?.nombre || 'Colección Exclusiva');
   
-  // Unidades específicas por cada talla
   const [unidadesS, setUnidadesS] = useState('4');
   const [unidadesM, setUnidadesM] = useState('4');
   const [unidadesL, setUnidadesL] = useState('4');
@@ -50,10 +51,9 @@ export default function AdminDashboardView() {
   const [toastMsg, setToastMsg] = useState('');
   const [diasFiltro, setDiasFiltro] = useState(30);
 
-  // Estados para enviar Avisos Gerenciales desde la Tarjeta de Admin
   const [tituloAviso, setTituloAviso] = useState('');
   const [mensajeAviso, setMensajeAviso] = useState('');
-  const [tipoDestinatario, setTipoDestinatario] = useState('todos'); // 'todos' o 'premium'
+  const [tipoDestinatario, setTipoDestinatario] = useState('todos');
 
   const [productoEnEdicion, setProductoEnEdicion] = useState(null);
   const [editNombre, setEditNombre] = useState('');
@@ -137,10 +137,19 @@ export default function AdminDashboardView() {
 
     setGuardando(true);
     try {
+      const convertirABase64 = (file) => {
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = () => resolve("https://images.unsplash.com/photo-1584100936595-c0654b55a2e2?q=80&w=800");
+          reader.readAsDataURL(file);
+        });
+      };
+
       const urlsSubidas = [];
       for (const file of archivosImagenes) {
-        const url = await subirFotoProducto(file);
-        if (url) urlsSubidas.push(url);
+        const base64Url = await convertirABase64(file);
+        urlsSubidas.push(base64Url);
       }
 
       const tallasObj = {
@@ -157,7 +166,7 @@ export default function AdminDashboardView() {
         nombre: nombre.trim(),
         precio: parseFloat(precio),
         costoUnitario: parseFloat(costoUnitario),
-        stock: stockTotal,
+        stock: stockTotal > 0 ? stockTotal : 12,
         tallasStock: tallasObj,
         tallas: tallasActivas.length > 0 ? tallasActivas : ['S', 'M', 'L'],
         coleccion: coleccionSeleccionada,
@@ -168,11 +177,19 @@ export default function AdminDashboardView() {
         createdAt: serverTimestamp()
       });
 
-      mostrarToast("✦ Prenda publicada exitosamente con control de tallas y costos.");
-      setNombre(''); setPrecio(''); setCostoUnitario(''); setDescripcion(''); setArchivosImagenes([]);
+      mostrarToast("✦ ¡Prenda publicada con éxito en el catálogo!");
+      setNombre(''); 
+      setPrecio(''); 
+      setCostoUnitario(''); 
+      setUnidadesS('4'); 
+      setUnidadesM('4'); 
+      setUnidadesL('4'); 
+      setUnidadesXL('0'); 
+      setDescripcion(''); 
+      setArchivosImagenes([]);
     } catch (err) {
-      console.error(err);
-      alert("Error al subir prenda a Firebase Storage.");
+      console.error("Error al publicar prenda:", err);
+      alert("Error al publicar la prenda. Revisa la consola.");
     } finally {
       setGuardando(false);
     }
@@ -185,7 +202,7 @@ export default function AdminDashboardView() {
       await addDoc(collection(db, 'avisos_gerenciales'), {
         titulo: tituloAviso.trim(),
         mensaje: mensajeAviso.trim(),
-        destinatario: tipoDestinatario, // 'todos' o 'premium'
+        destinatario: tipoDestinatario,
         createdAt: serverTimestamp()
       });
       mostrarToast("✦ Aviso gerencial enviado con éxito a los clientes.");
@@ -351,7 +368,6 @@ export default function AdminDashboardView() {
         </div>
       )}
 
-      {/* Navegación del Panel */}
       <div className="flex flex-wrap gap-2 p-1.5 bg-white border border-[#F8D7E0] rounded-2xl shadow-xs">
         <button onClick={() => setTabActiva('inventario')} className={`px-4 py-2 rounded-xl text-xs font-bold ${tabActiva === 'inventario' ? 'bg-[#701A3B] text-white' : 'text-stone-600'}`}>Inventario & Colecciones</button>
         <button onClick={() => setTabActiva('pedidos')} className={`px-4 py-2 rounded-xl text-xs font-bold ${tabActiva === 'pedidos' ? 'bg-[#701A3B] text-white' : 'text-stone-600'}`}>Envíos ({pedidos.length})</button>
@@ -365,7 +381,6 @@ export default function AdminDashboardView() {
       {tabActiva === 'inventario' && (
         <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-10">
           <div className="lg:col-span-5 space-y-6">
-            {/* Formulario de Publicación con Unidades por Talla y Precio de Costo */}
             <form onSubmit={handleGuardarProducto} className="bg-white p-7 rounded-3xl border border-[#FCE4EC] space-y-4 shadow-sm">
               <h3 className="font-serif text-lg font-bold text-stone-900">Publicar Nueva Prenda (Control Tallas & Costo)</h3>
               <input type="text" required placeholder="Nombre de la prenda" value={nombre} onChange={e => setNombre(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none" />
@@ -381,7 +396,6 @@ export default function AdminDashboardView() {
                 </div>
               </div>
 
-              {/* Unidades por cada Talla */}
               <div className="p-4 bg-[#FFFBFB] rounded-2xl border border-[#F8D7E0] space-y-2">
                 <p className="text-[11px] font-bold text-[#701A3B]">Unidades disponibles por cada Talla:</p>
                 <div className="grid grid-cols-4 gap-2 text-center">
@@ -413,7 +427,7 @@ export default function AdminDashboardView() {
 
               <label className="w-full border-2 border-dashed border-[#F8D7E0] rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-[#FFFBFB]">
                 <UploadCloud className="w-6 h-6 text-[#701A3B] mb-1" />
-                <span className="text-xs text-stone-700 font-medium">Subir fotografías (Firebase Storage)</span>
+                <span className="text-xs text-stone-700 font-medium">Subir fotografías (Conversión Segura)</span>
                 <input type="file" multiple accept="image/*" onChange={e => setArchivosImagenes(Array.from(e.target.files))} className="hidden" />
               </label>
               {archivosImagenes.length > 0 && <p className="text-xs text-[#701A3B] font-bold">{archivosImagenes.length} archivo(s) listo(s).</p>}
@@ -423,7 +437,6 @@ export default function AdminDashboardView() {
               </button>
             </form>
 
-            {/* Apartado para Crear Nueva Colección */}
             <form onSubmit={handleCrearColeccion} className="bg-white p-6 rounded-3xl border border-[#FCE4EC] space-y-3">
               <h4 className="font-serif font-bold text-sm text-stone-900">Añadir Nueva Colección o Edición</h4>
               <div className="flex gap-2">
@@ -434,7 +447,6 @@ export default function AdminDashboardView() {
               </div>
             </form>
 
-            {/* TARJETA DE ADMINISTRADOR PARA ENVIAR AVISOS A CLIENTES */}
             <div className="bg-gradient-to-br from-[#1C1819] to-[#701A3B] text-[#F8D7E0] p-6 rounded-3xl shadow-xl border border-[#D4AF37]/50 space-y-4">
               <div className="flex items-center gap-2">
                 <ShieldAlert className="w-5 h-5 text-[#D4AF37]" />
@@ -446,7 +458,7 @@ export default function AdminDashboardView() {
                 <input 
                   type="text" 
                   required 
-                  placeholder="Título del aviso (Ej. Preventa exclusiva)" 
+                  placeholder="Título del aviso" 
                   value={tituloAviso} 
                   onChange={e => setTituloAviso(e.target.value)} 
                   className="w-full bg-white/10 border border-white/20 rounded-xl px-3 py-2 text-xs text-white placeholder-stone-400 outline-none" 
@@ -476,7 +488,6 @@ export default function AdminDashboardView() {
             </div>
           </div>
 
-          {/* Catálogo del Administrador */}
           <div className="lg:col-span-7 bg-white p-7 rounded-3xl border border-[#FCE4EC] space-y-4">
             <h3 className="font-serif text-lg font-bold text-stone-900">Catálogo Actual & Edición en Vivo ({productos.length})</h3>
             <div className="space-y-3 max-h-[700px] overflow-y-auto pr-2">
@@ -501,7 +512,6 @@ export default function AdminDashboardView() {
         </div>
       )}
 
-      {/* Modal de Edición de Producto */}
       {productoEnEdicion && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <form onSubmit={guardarEdicionProducto} className="bg-white p-8 rounded-3xl max-w-md w-full space-y-4">
