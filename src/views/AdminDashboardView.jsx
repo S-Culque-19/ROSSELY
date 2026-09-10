@@ -1,6 +1,3 @@
-// ==========================================
-// 2. ADMIN DASHBOARD VIEW (src/views/AdminDashboardView.jsx)
-// ==========================================
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../context/StoreContext';
 import { db } from '../firebase';
@@ -8,7 +5,6 @@ import {
   collection, 
   addDoc, 
   doc, 
-  setDoc,
   updateDoc, 
   onSnapshot, 
   query, 
@@ -27,7 +23,9 @@ import {
   Bell,
   CheckCircle,
   X,
-  Plus
+  Plus,
+  ShieldAlert,
+  Send
 } from 'lucide-react';
 
 export default function AdminDashboardView() {
@@ -38,25 +36,31 @@ export default function AdminDashboardView() {
   const [nombre, setNombre] = useState('');
   const [precio, setPrecio] = useState('');
   const [costoUnitario, setCostoUnitario] = useState('');
-  const [stock, setStock] = useState('12');
   const [coleccionSeleccionada, setColeccionSeleccionada] = useState(colecciones[0]?.nombre || 'Colección Exclusiva');
-  const [tallas, setTallas] = useState('S, M, L');
+  
+  // Unidades específicas por cada talla
+  const [unidadesS, setUnidadesS] = useState('4');
+  const [unidadesM, setUnidadesM] = useState('4');
+  const [unidadesL, setUnidadesL] = useState('4');
+  const [unidadesXL, setUnidadesXL] = useState('0');
+
   const [descripcion, setDescripcion] = useState('');
   const [archivosImagenes, setArchivosImagenes] = useState([]);
   const [guardando, setGuardando] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
   const [diasFiltro, setDiasFiltro] = useState(30);
 
-  // Estados de Edición de Productos en Vivo
+  // Estados para enviar Avisos Gerenciales desde la Tarjeta de Admin
+  const [tituloAviso, setTituloAviso] = useState('');
+  const [mensajeAviso, setMensajeAviso] = useState('');
+  const [tipoDestinatario, setTipoDestinatario] = useState('todos'); // 'todos' o 'premium'
+
   const [productoEnEdicion, setProductoEnEdicion] = useState(null);
   const [editNombre, setEditNombre] = useState('');
   const [editPrecio, setEditPrecio] = useState('');
-  const [editStock, setEditStock] = useState('');
-  const [editColeccion, setEditColeccion] = useState('');
+  const [editCosto, setEditCosto] = useState('');
 
-  // Estados para Añadir Nueva Colección Dinámica
   const [nuevaColeccionInput, setNuevaColeccionInput] = useState('');
-
   const [chats, setChats] = useState([]);
   const [chatSeleccionado, setChatSeleccionado] = useState(null);
   const [mensajesChat, setMensajesChat] = useState([]);
@@ -83,18 +87,8 @@ export default function AdminDashboardView() {
       gain.connect(ctx.destination);
       osc.start();
       osc.stop(ctx.currentTime + 0.5);
-    } catch (e) {
-      console.warn("Audio Context restringido:", e);
-    }
+    } catch (e) {}
   };
-
-  useEffect(() => {
-    const docRef = doc(db, 'configuracion', 'experiencia_nocturna');
-    const unsub = onSnapshot(docRef, (snap) => {
-      if (snap.exists()) setConfigNocturna(prev => ({ ...prev, ...snap.data() }));
-    });
-    return () => unsub();
-  }, []);
 
   useEffect(() => {
     const q = query(collection(db, 'chats'), orderBy('ultimaFecha', 'desc'));
@@ -136,8 +130,8 @@ export default function AdminDashboardView() {
 
   const handleGuardarProducto = async (e) => {
     e.preventDefault();
-    if (!nombre.trim() || !precio || archivosImagenes.length === 0) {
-      alert("Por favor completa nombre, precio y selecciona al menos una fotografía.");
+    if (!nombre.trim() || !precio || !costoUnitario || archivosImagenes.length === 0) {
+      alert("Por favor completa nombre, precio de venta, precio de costo y selecciona al menos una fotografía.");
       return;
     }
 
@@ -149,13 +143,24 @@ export default function AdminDashboardView() {
         if (url) urlsSubidas.push(url);
       }
 
+      const tallasObj = {
+        S: parseInt(unidadesS, 10) || 0,
+        M: parseInt(unidadesM, 10) || 0,
+        L: parseInt(unidadesL, 10) || 0,
+        XL: parseInt(unidadesXL, 10) || 0
+      };
+
+      const stockTotal = Object.values(tallasObj).reduce((a, b) => a + b, 0);
+      const tallasActivas = Object.keys(tallasObj).filter(t => tallasObj[t] > 0);
+
       await addDoc(collection(db, 'productos'), {
         nombre: nombre.trim(),
         precio: parseFloat(precio),
-        costoUnitario: parseFloat(costoUnitario || (parseFloat(precio) * 0.4)),
-        stock: parseInt(stock, 10) || 0,
+        costoUnitario: parseFloat(costoUnitario),
+        stock: stockTotal,
+        tallasStock: tallasObj,
+        tallas: tallasActivas.length > 0 ? tallasActivas : ['S', 'M', 'L'],
         coleccion: coleccionSeleccionada,
-        tallas: tallas.split(',').map(t => t.trim().toUpperCase()),
         descripcion: descripcion.trim(),
         img: urlsSubidas[0],
         imagenes: urlsSubidas,
@@ -163,8 +168,8 @@ export default function AdminDashboardView() {
         createdAt: serverTimestamp()
       });
 
-      mostrarToast("✦ Prenda publicada y sincronizada en milisegundos.");
-      setNombre(''); setPrecio(''); setCostoUnitario(''); setStock('12'); setDescripcion(''); setArchivosImagenes([]);
+      mostrarToast("✦ Prenda publicada exitosamente con control de tallas y costos.");
+      setNombre(''); setPrecio(''); setCostoUnitario(''); setDescripcion(''); setArchivosImagenes([]);
     } catch (err) {
       console.error(err);
       alert("Error al subir prenda a Firebase Storage.");
@@ -173,12 +178,29 @@ export default function AdminDashboardView() {
     }
   };
 
+  const handleEnviarAvisoGerencial = async (e) => {
+    e.preventDefault();
+    if (!tituloAviso.trim() || !mensajeAviso.trim()) return;
+    try {
+      await addDoc(collection(db, 'avisos_gerenciales'), {
+        titulo: tituloAviso.trim(),
+        mensaje: mensajeAviso.trim(),
+        destinatario: tipoDestinatario, // 'todos' o 'premium'
+        createdAt: serverTimestamp()
+      });
+      mostrarToast("✦ Aviso gerencial enviado con éxito a los clientes.");
+      setTituloAviso('');
+      setMensajeAviso('');
+    } catch (e) {
+      alert("Error al enviar aviso.");
+    }
+  };
+
   const iniciarEdicion = (p) => {
     setProductoEnEdicion(p);
     setEditNombre(p.nombre);
     setEditPrecio(p.precio);
-    setEditStock(p.stock || 12);
-    setEditColeccion(p.coleccion || colecciones[0]?.nombre);
+    setEditCosto(p.costoUnitario || p.precio * 0.4);
   };
 
   const guardarEdicionProducto = async (e) => {
@@ -187,8 +209,7 @@ export default function AdminDashboardView() {
     await editarProducto(productoEnEdicion.id, {
       nombre: editNombre,
       precio: parseFloat(editPrecio),
-      stock: parseInt(editStock, 10),
-      coleccion: editColeccion
+      costoUnitario: parseFloat(editCosto)
     });
     mostrarToast("✦ Prenda actualizada correctamente.");
     setProductoEnEdicion(null);
@@ -200,29 +221,6 @@ export default function AdminDashboardView() {
     agregarColeccionDinamica(nuevaColeccionInput.trim());
     mostrarToast(`✦ Colección "${nuevaColeccionInput}" creada con éxito.`);
     setNuevaColeccionInput('');
-  };
-
-  const handleEnviarRespuestaAdmin = async (e) => {
-    e.preventDefault();
-    if (!respuestaAdmin.trim() || !chatSeleccionado?.id) return;
-    const texto = respuestaAdmin.trim();
-    setRespuestaAdmin('');
-
-    try {
-      await addDoc(collection(db, 'chats', chatSeleccionado.id, 'mensajes'), {
-        remitente: 'admin',
-        texto,
-        timestamp: serverTimestamp()
-      });
-      await updateDoc(doc(db, 'chats', chatSeleccionado.id), {
-        ultimoMensaje: `Asesora: ${texto}`,
-        ultimaFecha: serverTimestamp(),
-        noLeidoPorAdmin: false,
-        estado: 'respondido'
-      });
-    } catch (err) {
-      console.error(err);
-    }
   };
 
   const handleVerificarSuscripcion = async (subId, userId, nuevoEstado) => {
@@ -237,9 +235,7 @@ export default function AdminDashboardView() {
         });
         mostrarToast("✦ Suscripción aprobada y verificada.");
       }
-    } catch (err) {
-      console.error(err);
-    }
+    } catch (err) {}
   };
 
   const ahora = new Date();
@@ -258,7 +254,6 @@ export default function AdminDashboardView() {
   const gananciaNetaReal = ingresosTotales - costoTotalMercaderia;
   const unidadesVendidas = pedidosFiltrados.reduce((acc, p) => acc + (p.items || []).reduce((iAcc, it) => iAcc + (it.cantidad || 1), 0), 0);
 
-  // Motor ExcelJS con cabecera corporativa en Azul Petróleo (#002D62)
   const exportarBalanceExcelJS = async () => {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Atelier ROSSELY';
@@ -356,7 +351,7 @@ export default function AdminDashboardView() {
         </div>
       )}
 
-      {/* Navegación de Pestañas del Panel */}
+      {/* Navegación del Panel */}
       <div className="flex flex-wrap gap-2 p-1.5 bg-white border border-[#F8D7E0] rounded-2xl shadow-xs">
         <button onClick={() => setTabActiva('inventario')} className={`px-4 py-2 rounded-xl text-xs font-bold ${tabActiva === 'inventario' ? 'bg-[#701A3B] text-white' : 'text-stone-600'}`}>Inventario & Colecciones</button>
         <button onClick={() => setTabActiva('pedidos')} className={`px-4 py-2 rounded-xl text-xs font-bold ${tabActiva === 'pedidos' ? 'bg-[#701A3B] text-white' : 'text-stone-600'}`}>Envíos ({pedidos.length})</button>
@@ -370,19 +365,47 @@ export default function AdminDashboardView() {
       {tabActiva === 'inventario' && (
         <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-10">
           <div className="lg:col-span-5 space-y-6">
-            {/* Formulario para Publicar Prenda */}
+            {/* Formulario de Publicación con Unidades por Talla y Precio de Costo */}
             <form onSubmit={handleGuardarProducto} className="bg-white p-7 rounded-3xl border border-[#FCE4EC] space-y-4 shadow-sm">
-              <h3 className="font-serif text-lg font-bold text-stone-900">Publicar Nueva Prenda</h3>
+              <h3 className="font-serif text-lg font-bold text-stone-900">Publicar Nueva Prenda (Control Tallas & Costo)</h3>
               <input type="text" required placeholder="Nombre de la prenda" value={nombre} onChange={e => setNombre(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none" />
               
-              <div className="grid grid-cols-3 gap-3">
-                <input type="number" step="0.01" required placeholder="P. Venta (S/)" value={precio} onChange={e => setPrecio(e.target.value)} className="bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none" />
-                <input type="number" step="0.01" placeholder="Costo Taller" value={costoUnitario} onChange={e => setCostoUnitario(e.target.value)} className="bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none" />
-                <input type="number" value={stock} onChange={e => setStock(e.target.value)} placeholder="Stock" className="bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none" />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold text-stone-600">Precio Venta (S/)</label>
+                  <input type="number" step="0.01" required placeholder="Ej. 140.00" value={precio} onChange={e => setPrecio(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-stone-600">Precio Costo Taller (S/)</label>
+                  <input type="number" step="0.01" required placeholder="Ej. 55.00" value={costoUnitario} onChange={e => setCostoUnitario(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none" />
+                </div>
+              </div>
+
+              {/* Unidades por cada Talla */}
+              <div className="p-4 bg-[#FFFBFB] rounded-2xl border border-[#F8D7E0] space-y-2">
+                <p className="text-[11px] font-bold text-[#701A3B]">Unidades disponibles por cada Talla:</p>
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  <div>
+                    <span className="text-[10px] font-bold text-stone-500">Talla S</span>
+                    <input type="number" value={unidadesS} onChange={e => setUnidadesS(e.target.value)} className="w-full bg-white border border-[#F8D7E0] rounded-lg p-1 text-xs text-center font-bold" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-stone-500">Talla M</span>
+                    <input type="number" value={unidadesM} onChange={e => setUnidadesM(e.target.value)} className="w-full bg-white border border-[#F8D7E0] rounded-lg p-1 text-xs text-center font-bold" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-stone-500">Talla L</span>
+                    <input type="number" value={unidadesL} onChange={e => setUnidadesL(e.target.value)} className="w-full bg-white border border-[#F8D7E0] rounded-lg p-1 text-xs text-center font-bold" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-stone-500">Talla XL</span>
+                    <input type="number" value={unidadesXL} onChange={e => setUnidadesXL(e.target.value)} className="w-full bg-white border border-[#F8D7E0] rounded-lg p-1 text-xs text-center font-bold" />
+                  </div>
+                </div>
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold text-stone-700 mb-1">Seleccionar Colección / Edición</label>
+                <label className="block text-[11px] font-bold text-stone-700 mb-1">Colección / Edición</label>
                 <select value={coleccionSeleccionada} onChange={e => setColeccionSeleccionada(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none font-medium">
                   {colecciones.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
                 </select>
@@ -393,37 +416,78 @@ export default function AdminDashboardView() {
                 <span className="text-xs text-stone-700 font-medium">Subir fotografías (Firebase Storage)</span>
                 <input type="file" multiple accept="image/*" onChange={e => setArchivosImagenes(Array.from(e.target.files))} className="hidden" />
               </label>
-              {archivosImagenes.length > 0 && <p className="text-xs text-[#701A3B] font-bold">{archivosImagenes.length} archivo(s) seleccionado(s).</p>}
+              {archivosImagenes.length > 0 && <p className="text-xs text-[#701A3B] font-bold">{archivosImagenes.length} archivo(s) listo(s).</p>}
 
               <button type="submit" disabled={guardando} className="w-full bg-[#701A3B] text-white py-3.5 rounded-xl font-bold uppercase text-xs cursor-pointer shadow-md">
                 {guardando ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Publicar Prenda al Instante'}
               </button>
             </form>
 
-            {/* Apartado para Crear Nueva Colección / Edición Dinámica */}
+            {/* Apartado para Crear Nueva Colección */}
             <form onSubmit={handleCrearColeccion} className="bg-white p-6 rounded-3xl border border-[#FCE4EC] space-y-3">
               <h4 className="font-serif font-bold text-sm text-stone-900">Añadir Nueva Colección o Edición</h4>
               <div className="flex gap-2">
-                <input type="text" placeholder="Ej. Edición Seda Imperial Nocturna" value={nuevaColeccionInput} onChange={e => setNuevaColeccionInput(e.target.value)} className="flex-1 bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none" />
+                <input type="text" placeholder="Ej. Edición Seda Imperial" value={nuevaColeccionInput} onChange={e => setNuevaColeccionInput(e.target.value)} className="flex-1 bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none" />
                 <button type="submit" className="bg-[#D4AF37] text-stone-900 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer">
                   <Plus className="w-4 h-4" /> Crear
                 </button>
               </div>
             </form>
+
+            {/* TARJETA DE ADMINISTRADOR PARA ENVIAR AVISOS A CLIENTES */}
+            <div className="bg-gradient-to-br from-[#1C1819] to-[#701A3B] text-[#F8D7E0] p-6 rounded-3xl shadow-xl border border-[#D4AF37]/50 space-y-4">
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="w-5 h-5 text-[#D4AF37]" />
+                <h4 className="font-serif font-bold text-sm text-white">Central de Avisos & Notificaciones (Admin)</h4>
+              </div>
+              <p className="text-[11px] text-stone-300">Envía notificaciones exclusivas directamente a las tarjetas Wallet de tus clientas.</p>
+              
+              <form onSubmit={handleEnviarAvisoGerencial} className="space-y-3 pt-2">
+                <input 
+                  type="text" 
+                  required 
+                  placeholder="Título del aviso (Ej. Preventa exclusiva)" 
+                  value={tituloAviso} 
+                  onChange={e => setTituloAviso(e.target.value)} 
+                  className="w-full bg-white/10 border border-white/20 rounded-xl px-3 py-2 text-xs text-white placeholder-stone-400 outline-none" 
+                />
+                <textarea 
+                  required 
+                  rows="2"
+                  placeholder="Mensaje o comunicado gerencial..." 
+                  value={mensajeAviso} 
+                  onChange={e => setMensajeAviso(e.target.value)} 
+                  className="w-full bg-white/10 border border-white/20 rounded-xl px-3 py-2 text-xs text-white placeholder-stone-400 outline-none resize-none" 
+                />
+                <div className="flex justify-between items-center">
+                  <select 
+                    value={tipoDestinatario} 
+                    onChange={e => setTipoDestinatario(e.target.value)} 
+                    className="bg-white/20 text-white rounded-xl px-3 py-1.5 text-xs outline-none border border-white/20"
+                  >
+                    <option value="todos" className="text-stone-900">Para Todos los Clientes</option>
+                    <option value="premium" className="text-stone-900">Solo Clientes Premium</option>
+                  </select>
+                  <button type="submit" className="bg-[#D4AF37] text-stone-900 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer">
+                    <Send className="w-3.5 h-3.5" /> Enviar Aviso
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
 
-          {/* Catálogo Actual del Administrador con Opción de Edición Interactiva */}
+          {/* Catálogo del Administrador */}
           <div className="lg:col-span-7 bg-white p-7 rounded-3xl border border-[#FCE4EC] space-y-4">
             <h3 className="font-serif text-lg font-bold text-stone-900">Catálogo Actual & Edición en Vivo ({productos.length})</h3>
-            <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
+            <div className="space-y-3 max-h-[700px] overflow-y-auto pr-2">
               {productos.map(p => (
                 <div key={p.id} className="flex items-center justify-between p-3.5 rounded-2xl border border-stone-100 bg-[#FFFBFB]">
                   <div className="flex items-center gap-3">
                     <img src={p.img} alt={p.nombre} className="w-12 h-14 rounded-lg object-cover" />
                     <div>
                       <p className="font-bold text-xs">{p.nombre}</p>
-                      <p className="text-[10px] text-stone-400">{p.coleccion || 'Colección Exclusiva'}</p>
-                      <p className="text-xs font-semibold text-[#701A3B]">S/. {parseFloat(p.precio || 0).toFixed(2)} (Stock: {p.stock || 0})</p>
+                      <p className="text-[10px] text-stone-400">{p.coleccion || 'Exclusiva'} | Stock Total: {p.stock || 0}</p>
+                      <p className="text-xs font-semibold text-[#701A3B]">Venta: S/. {parseFloat(p.precio || 0).toFixed(2)} | Costo: S/. {parseFloat(p.costoUnitario || 0).toFixed(2)}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
@@ -442,7 +506,7 @@ export default function AdminDashboardView() {
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <form onSubmit={guardarEdicionProducto} className="bg-white p-8 rounded-3xl max-w-md w-full space-y-4">
             <div className="flex justify-between items-center">
-              <h3 className="font-serif font-bold text-base text-stone-900">Editar Prenda: {productoEnEdicion.nombre}</h3>
+              <h3 className="font-serif font-bold text-base text-stone-900">Editar: {productoEnEdicion.nombre}</h3>
               <button type="button" onClick={() => setProductoEnEdicion(null)}><X className="w-5 h-5" /></button>
             </div>
             <div>
@@ -451,21 +515,15 @@ export default function AdminDashboardView() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[11px] font-bold text-stone-600">Precio (S/)</label>
+                <label className="text-[11px] font-bold text-stone-600">Precio Venta (S/)</label>
                 <input type="number" step="0.01" value={editPrecio} onChange={e => setEditPrecio(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none" />
               </div>
               <div>
-                <label className="text-[11px] font-bold text-stone-600">Stock</label>
-                <input type="number" value={editStock} onChange={e => setEditStock(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none" />
+                <label className="text-[11px] font-bold text-stone-600">Precio Costo (S/)</label>
+                <input type="number" step="0.01" value={editCosto} onChange={e => setEditCosto(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none" />
               </div>
             </div>
-            <div>
-              <label className="text-[11px] font-bold text-stone-600">Colección / Edición</label>
-              <select value={editColeccion} onChange={e => setEditColeccion(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none">
-                {colecciones.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
-              </select>
-            </div>
-            <button type="submit" className="w-full bg-[#701A3B] text-white py-3 rounded-xl font-bold uppercase text-xs cursor-pointer">Guardar Cambios al Instante</button>
+            <button type="submit" className="w-full bg-[#701A3B] text-white py-3 rounded-xl font-bold uppercase text-xs cursor-pointer">Guardar Cambios</button>
           </form>
         </div>
       )}
@@ -529,7 +587,7 @@ export default function AdminDashboardView() {
             <label className="block font-bold mb-1">Mensaje Nocturno Dinámico</label>
             <input type="text" value={configNocturna.mensaje} onChange={(ev)=>setConfigNocturna({...configNocturna, mensaje: ev.target.value})} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl p-3" />
             <button onClick={async () => {
-              await setDoc(doc(db, 'configuracion', 'experiencia_nocturna'), configNocturna, { merge: true });
+              await updateDoc(doc(db, 'configuracion', 'experiencia_nocturna'), configNocturna);
               mostrarToast("✦ Configuración nocturna actualizada.");
             }} className="bg-[#701A3B] text-white px-6 py-3 rounded-xl font-bold uppercase tracking-wider cursor-pointer">Guardar Configuración</button>
           </div>

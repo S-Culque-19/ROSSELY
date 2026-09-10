@@ -1,6 +1,3 @@
-// ==========================================
-// 1. STORE CONTEXT (src/context/StoreContext.jsx)
-// ==========================================
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { db } from '../firebase';
 import { 
@@ -28,6 +25,7 @@ export const StoreProvider = ({ children }) => {
     { id: 'col_3', nombre: 'Satén de Novias & Veladas' }
   ]);
   const [pedidos, setPedidos] = useState([]);
+  const [avisosGlobales, setAvisosGlobales] = useState([]);
   const [cargandoProductos, setCargandoProductos] = useState(true);
 
   const [usuarioActual, setUsuarioActual] = useState(() => {
@@ -62,23 +60,34 @@ export const StoreProvider = ({ children }) => {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const esAdmin = usuarioActual?.role === 'admin';
 
-  // Sincronización ultrarrápida de colecciones dinámicas
+  // Sincronización de avisos gerenciales para los clientes
+  useEffect(() => {
+    try {
+      const colRef = collection(db, 'avisos_gerenciales');
+      const q = query(colRef, orderBy('createdAt', 'desc'));
+      const unsub = onSnapshot(q, (snapshot) => {
+        setAvisosGlobales(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      }, () => {});
+      return () => unsub();
+    } catch (e) {
+      console.warn("Avisos offline:", e);
+    }
+  }, []);
+
+  // Sincronización de colecciones
   useEffect(() => {
     try {
       const colRef = collection(db, 'colecciones');
       const unsub = onSnapshot(colRef, (snapshot) => {
         if (!snapshot.empty) {
-          const colsDinamicas = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-          setColecciones(colsDinamicas);
+          setColecciones(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
         }
       }, () => {});
       return () => unsub();
-    } catch (e) {
-      console.warn("Colecciones locales estáticas cargadas");
-    }
+    } catch (e) {}
   }, []);
 
-  // Sincronización en tiempo real con milisegundos de latencia para Productos
+  // Sincronización de productos
   useEffect(() => {
     try {
       const colRef = collection(db, 'productos');
@@ -99,7 +108,7 @@ export const StoreProvider = ({ children }) => {
     }
   }, []);
 
-  // Sincronización en tiempo real para Pedidos
+  // Sincronización de pedidos
   useEffect(() => {
     try {
       const colRef = collection(db, 'pedidos');
@@ -108,9 +117,7 @@ export const StoreProvider = ({ children }) => {
         setPedidos(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
       }, () => {});
       return () => unsub();
-    } catch (e) {
-      console.warn("Pedidos offline:", e);
-    }
+    } catch (e) {}
   }, []);
 
   useEffect(() => {
@@ -123,7 +130,7 @@ export const StoreProvider = ({ children }) => {
 
   const iniciarSesion = async (email, password) => {
     const correo = email.trim().toLowerCase();
-    if (correo === 'carmenadeshda.org.com' && password === 'prins2026') {
+    if (correo === 'carmen@eshda.org.com' && password === 'prins2026') {
       const adminData = { uid: 'admin_rossely_carmen', email: correo, nombre: 'Carmen Estrada (Dirección)', role: 'admin' };
       setUsuarioActual(adminData);
       setCurrentView('admin');
@@ -191,6 +198,11 @@ export const StoreProvider = ({ children }) => {
   };
 
   const agregarAlCarrito = (producto, talla = 'M') => {
+    if (!usuarioActual) {
+      alert("Debe iniciar sesión o registrarse para realizar compras en el Atelier.");
+      setCurrentView('auth');
+      return;
+    }
     if (esAdmin) {
       alert("Modo Supervisión: La cuenta administrativa no realiza compras directas.");
       return;
@@ -304,9 +316,7 @@ export const StoreProvider = ({ children }) => {
     try {
       await updateDoc(doc(db, 'productos', id), datosActualizados);
       setProductos(prev => prev.map(p => p.id === id ? { ...p, ...datosActualizados } : p));
-    } catch (e) {
-      console.error("Error al editar:", e);
-    }
+    } catch (e) {}
   };
 
   const agregarColeccionDinamica = async (nombreColeccion) => {
@@ -328,6 +338,7 @@ export const StoreProvider = ({ children }) => {
     <StoreContext.Provider value={{
       productos,
       colecciones,
+      avisosGlobales,
       cargandoProductos,
       carrito,
       currentView,

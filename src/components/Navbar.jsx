@@ -1,13 +1,9 @@
-// ============================================================================
-// COMPONENTE 3: NAVEGACIÓN Y CONTROL DE VISTAS (Navbar.jsx)
-// ============================================================================
 import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
-import { ShoppingBag, Search, User, Crown, LogOut, ShieldCheck, Menu, X } from 'lucide-react';
+import { ShoppingBag, Search, User, Crown, LogOut, Menu, X } from 'lucide-react';
 
 export default function Navbar({ busqueda, setBusqueda }) {
-  const { usuarioActual, carrito, navegarA, cerrarSesion, esAdmin, currentView } = useStore();
-  const [menuAbierto, setMenuAbierto] = useState(false);
+  const { usuarioActual, carrito, navegarA, cerrarSesion, esAdmin } = useStore();
 
   const totalItemsCarrito = carrito.reduce((acc, it) => acc + (it.cantidad || 1), 0);
 
@@ -21,7 +17,7 @@ export default function Navbar({ busqueda, setBusqueda }) {
           <span className="text-[9px] uppercase tracking-widest text-[#701A3B] hidden sm:inline-block font-semibold">Sleepwear & Silk</span>
         </div>
 
-        {/* Barra de Búsqueda Estética */}
+        {/* Barra de Búsqueda */}
         <div className="hidden md:flex flex-1 max-w-md mx-6 relative items-center">
           <Search className="w-4 h-4 text-stone-400 absolute left-4" />
           <input 
@@ -33,13 +29,17 @@ export default function Navbar({ busqueda, setBusqueda }) {
           />
         </div>
 
-        {/* Navegación y Botones de Acción */}
+        {/* Navegación */}
         <div className="flex items-center gap-4">
           <button onClick={() => navegarA('home')} className="hidden lg:block text-xs font-bold text-stone-700 hover:text-[#701A3B]">Inicio</button>
           <button onClick={() => navegarA('catalog')} className="hidden lg:block text-xs font-bold text-stone-700 hover:text-[#701A3B]">Colección</button>
-          <button onClick={() => navegarA('suscripcion')} className="hidden lg:block text-xs font-bold text-[#701A3B] flex items-center gap-1">
-            <Crown className="w-3.5 h-3.5 text-[#D4AF37]" /> Membresía S/.60
-          </button>
+          
+          {/* La Membresía S/. 60 SOLO se muestra a clientes, NO al administrador */}
+          {!esAdmin && (
+            <button onClick={() => navegarA('suscripcion')} className="hidden lg:block text-xs font-bold text-[#701A3B] flex items-center gap-1">
+              <Crown className="w-3.5 h-3.5 text-[#D4AF37]" /> Membresía S/.60
+            </button>
+          )}
 
           {usuarioActual ? (
             <div className="flex items-center gap-3">
