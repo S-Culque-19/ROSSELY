@@ -1,6 +1,6 @@
 // ============================================================================
 // ADMIN DASHBOARD VIEW (src/views/AdminDashboardView.jsx)
-// Arquitectura completa optimizada para lote masivo, compresión y finanzas.
+// Arquitectura completa optimizada: Lote masivo, compresión, finanzas y editor total.
 // ============================================================================
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../context/StoreContext';
@@ -28,9 +28,7 @@ import {
   X,
   Plus,
   ShieldAlert,
-  Send,
-  Sparkles,
-  ShieldCheck
+  Send
 } from 'lucide-react';
 
 export default function AdminDashboardView() {
@@ -43,13 +41,13 @@ export default function AdminDashboardView() {
   const [costoUnitario, setCostoUnitario] = useState('');
   const [coleccionSeleccionada, setColeccionSeleccionada] = useState(colecciones[0]?.nombre || 'Colección Exclusiva');
   
-  // Unidades específicas por cada talla
+  // Unidades específicas por cada talla (Nuevo Producto)
   const [unidadesS, setUnidadesS] = useState('5');
   const [unidadesM, setUnidadesM] = useState('8');
   const [unidadesL, setUnidadesL] = useState('5');
   const [unidadesXL, setUnidadesXL] = useState('2');
-
   const [descripcion, setDescripcion] = useState('');
+
   const [archivosSeleccionados, setArchivosSeleccionados] = useState([]);
   const [guardando, setGuardando] = useState(false);
   const [progresoSubida, setProgresoSubida] = useState('');
@@ -61,10 +59,17 @@ export default function AdminDashboardView() {
   const [mensajeAviso, setMensajeAviso] = useState('');
   const [tipoDestinatario, setTipoDestinatario] = useState('todos');
 
+  // Estados del Editor Avanzado de Producto (Todos los parámetros)
   const [productoEnEdicion, setProductoEnEdicion] = useState(null);
   const [editNombre, setEditNombre] = useState('');
   const [editPrecio, setEditPrecio] = useState('');
   const [editCosto, setEditCosto] = useState('');
+  const [editColeccion, setEditColeccion] = useState('');
+  const [editDescripcion, setEditDescripcion] = useState('');
+  const [editS, setEditS] = useState('0');
+  const [editM, setEditM] = useState('0');
+  const [editL, setEditL] = useState('0');
+  const [editXL, setEditXL] = useState('0');
 
   const [nuevaColeccionInput, setNuevaColeccionInput] = useState('');
   const [chats, setChats] = useState([]);
@@ -238,7 +243,6 @@ export default function AdminDashboardView() {
       console.error("Error al publicar prenda:", err);
       alert("Error al guardar el producto. Verifique su conexión.");
     } finally {
-      // Bloque try/catch/finally estrictamente blindado contra botones atascados
       setGuardando(false);
       setProgresoSubida('');
     }
@@ -264,20 +268,42 @@ export default function AdminDashboardView() {
 
   const iniciarEdicion = (p) => {
     setProductoEnEdicion(p);
-    setEditNombre(p.nombre);
-    setEditPrecio(p.precio);
-    setEditCosto(p.costoUnitario || p.precio * 0.4);
+    setEditNombre(p.nombre || '');
+    setEditPrecio(p.precio || '');
+    setEditCosto(p.costoUnitario || (p.precio ? p.precio * 0.4 : ''));
+    setEditColeccion(p.coleccion || colecciones[0]?.nombre || '');
+    setEditDescripcion(p.descripcion || '');
+    setEditS(p.tallasStock?.S ?? '4');
+    setEditM(p.tallasStock?.M ?? '4');
+    setEditL(p.tallasStock?.L ?? '4');
+    setEditXL(p.tallasStock?.XL ?? '0');
   };
 
   const guardarEdicionProducto = async (e) => {
     e.preventDefault();
     if (!productoEnEdicion) return;
+
+    const tallasEditadas = {
+      S: parseInt(editS, 10) || 0,
+      M: parseInt(editM, 10) || 0,
+      L: parseInt(editL, 10) || 0,
+      XL: parseInt(editXL, 10) || 0
+    };
+    const stockTotalEditado = Object.values(tallasEditadas).reduce((a, b) => a + b, 0);
+    const tallasActivasEditadas = Object.keys(tallasEditadas).filter(t => tallasEditadas[t] > 0);
+
     await editarProducto(productoEnEdicion.id, {
-      nombre: editNombre,
+      nombre: editNombre.trim(),
       precio: parseFloat(editPrecio),
-      costoUnitario: parseFloat(editCosto)
+      costoUnitario: parseFloat(editCosto),
+      coleccion: editColeccion,
+      descripcion: editDescripcion.trim(),
+      tallasStock: tallasEditadas,
+      stock: stockTotalEditado,
+      tallas: tallasActivasEditadas.length > 0 ? tallasActivasEditadas : ['S', 'M', 'L']
     });
-    mostrarToast("✦ Prenda actualizada correctamente.");
+
+    mostrarToast("✦ Prenda actualizada con todos sus parámetros correctamente.");
     setProductoEnEdicion(null);
   };
 
@@ -432,7 +458,7 @@ export default function AdminDashboardView() {
         <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-10">
           <div className="lg:col-span-5 space-y-6">
             
-            {/* Formulario de Publicación con Lote Masivo y Control Tallas/Costos */}
+            {/* Formulario de Publicación */}
             <form onSubmit={handleGuardarProducto} className="bg-white p-7 rounded-3xl border border-[#FCE4EC] space-y-4 shadow-sm">
               <h3 className="font-serif text-lg font-bold text-stone-900">Publicar Nueva Prenda (Lote Masivo)</h3>
               <input type="text" required placeholder="Nombre de la prenda o set" value={nombre} onChange={e => setNombre(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-4 py-2.5 text-xs outline-none" />
@@ -511,47 +537,6 @@ export default function AdminDashboardView() {
                 </button>
               </div>
             </form>
-
-            {/* TARJETA DE ADMINISTRADOR PARA ENVIAR AVISOS */}
-            <div className="bg-gradient-to-br from-[#1C1819] to-[#701A3B] text-[#F8D7E0] p-6 rounded-3xl shadow-xl border border-[#D4AF37]/50 space-y-4">
-              <div className="flex items-center gap-2">
-                <ShieldAlert className="w-5 h-5 text-[#D4AF37]" />
-                <h4 className="font-serif font-bold text-sm text-white">Central de Avisos & Notificaciones (Admin)</h4>
-              </div>
-              <p className="text-[11px] text-stone-300">Envía notificaciones exclusivas directamente a las tarjetas Wallet de tus clientas.</p>
-              
-              <form onSubmit={handleEnviarAvisoGerencial} className="space-y-3 pt-2">
-                <input 
-                  type="text" 
-                  required 
-                  placeholder="Título del aviso" 
-                  value={tituloAviso} 
-                  onChange={e => setTituloAviso(e.target.value)} 
-                  className="w-full bg-white/10 border border-white/20 rounded-xl px-3 py-2 text-xs text-white placeholder-stone-400 outline-none" 
-                />
-                <textarea 
-                  required 
-                  rows="2"
-                  placeholder="Mensaje o comunicado gerencial..." 
-                  value={mensajeAviso} 
-                  onChange={e => setMensajeAviso(e.target.value)} 
-                  className="w-full bg-white/10 border border-white/20 rounded-xl px-3 py-2 text-xs text-white placeholder-stone-400 outline-none resize-none" 
-                />
-                <div className="flex justify-between items-center">
-                  <select 
-                    value={tipoDestinatario} 
-                    onChange={e => setTipoDestinatario(e.target.value)} 
-                    className="bg-white/20 text-white rounded-xl px-3 py-1.5 text-xs outline-none border border-white/20"
-                  >
-                    <option value="todos" className="text-stone-900">Para Todos los Clientes</option>
-                    <option value="premium" className="text-stone-900">Solo Clientes Premium</option>
-                  </select>
-                  <button type="submit" className="bg-[#D4AF37] text-stone-900 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer">
-                    <Send className="w-3.5 h-3.5" /> Enviar Aviso
-                  </button>
-                </div>
-              </form>
-            </div>
           </div>
 
           {/* Catálogo del Administrador */}
@@ -569,7 +554,7 @@ export default function AdminDashboardView() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => iniciarEdicion(p)} className="p-2 text-[#701A3B] hover:bg-pink-50 rounded-lg cursor-pointer" title="Editar Prenda"><Edit3 className="w-4 h-4" /></button>
+                    <button onClick={() => iniciarEdicion(p)} className="p-2 text-[#701A3B] hover:bg-pink-50 rounded-lg cursor-pointer" title="Editar Prenda con Todos los Parámetros"><Edit3 className="w-4 h-4" /></button>
                     <button onClick={() => eliminarProducto(p.id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg cursor-pointer" title="Eliminar"><Trash2 className="w-4 h-4" /></button>
                   </div>
                 </div>
@@ -579,29 +564,67 @@ export default function AdminDashboardView() {
         </div>
       )}
 
-      {/* Modal de Edición de Producto */}
+      {/* MODAL DE EDICIÓN AVANZADA (CON TODOS LOS PARÁMETROS) */}
       {productoEnEdicion && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <form onSubmit={guardarEdicionProducto} className="bg-white p-8 rounded-3xl max-w-md w-full space-y-4">
-            <div className="flex justify-between items-center">
-              <h3 className="font-serif font-bold text-base text-stone-900">Editar: {productoEnEdicion.nombre}</h3>
+          <form onSubmit={guardarEdicionProducto} className="bg-white p-8 rounded-3xl max-w-lg w-full space-y-4 max-h-[90vh] overflow-y-auto shadow-2xl">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-serif font-bold text-base text-stone-900">Editar Prenda: {productoEnEdicion.nombre}</h3>
               <button type="button" onClick={() => setProductoEnEdicion(null)}><X className="w-5 h-5" /></button>
             </div>
+
             <div>
-              <label className="text-[11px] font-bold text-stone-600">Nombre</label>
-              <input type="text" value={editNombre} onChange={e => setEditNombre(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none" />
+              <label className="text-[11px] font-bold text-stone-600">Nombre Completo</label>
+              <input type="text" value={editNombre} onChange={e => setEditNombre(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none" required />
             </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[11px] font-bold text-stone-600">Precio Venta (S/)</label>
-                <input type="number" step="0.01" value={editPrecio} onChange={e => setEditPrecio(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none" />
+                <input type="number" step="0.01" value={editPrecio} onChange={e => setEditPrecio(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none" required />
               </div>
               <div>
-                <label className="text-[11px] font-bold text-stone-600">Precio Costo (S/)</label>
-                <input type="number" step="0.01" value={editCosto} onChange={e => setEditCosto(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none" />
+                <label className="text-[11px] font-bold text-stone-600">Precio Costo Taller (S/)</label>
+                <input type="number" step="0.01" value={editCosto} onChange={e => setEditCosto(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none" required />
               </div>
             </div>
-            <button type="submit" className="w-full bg-[#701A3B] text-white py-3 rounded-xl font-bold uppercase text-xs cursor-pointer">Guardar Cambios</button>
+
+            {/* Unidades Matriciales por Talla en el Editor */}
+            <div className="p-4 bg-[#FFFBFB] rounded-2xl border border-[#F8D7E0] space-y-2">
+              <p className="text-[11px] font-bold text-[#701A3B]">Modificar Unidades por Talla:</p>
+              <div className="grid grid-cols-4 gap-2 text-center">
+                <div>
+                  <span className="text-[10px] font-bold text-stone-500">Talla S</span>
+                  <input type="number" value={editS} onChange={e => setEditS(e.target.value)} className="w-full bg-white border border-[#F8D7E0] rounded-lg p-1 text-xs text-center font-bold" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-stone-500">Talla M</span>
+                  <input type="number" value={editM} onChange={e => setEditM(e.target.value)} className="w-full bg-white border border-[#F8D7E0] rounded-lg p-1 text-xs text-center font-bold" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-stone-500">Talla L</span>
+                  <input type="number" value={editL} onChange={e => setEditL(e.target.value)} className="w-full bg-white border border-[#F8D7E0] rounded-lg p-1 text-xs text-center font-bold" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-stone-500">Talla XL</span>
+                  <input type="number" value={editXL} onChange={e => setEditXL(e.target.value)} className="w-full bg-white border border-[#F8D7E0] rounded-lg p-1 text-xs text-center font-bold" />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-stone-700 mb-1">Colección / Edición</label>
+              <select value={editColeccion} onChange={e => setEditColeccion(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none font-medium">
+                {colecciones.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-bold text-stone-600">Descripción Editorial</label>
+              <textarea rows="2" value={editDescripcion} onChange={e => setEditDescripcion(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none resize-none" />
+            </div>
+
+            <button type="submit" className="w-full bg-[#701A3B] text-white py-3 rounded-xl font-bold uppercase text-xs cursor-pointer shadow-md">Guardar Todos los Cambios</button>
           </form>
         </div>
       )}
