@@ -67,7 +67,7 @@ exports.createOrder = onCall(async (request) => {
   }
   try {
     const [metadata] = await getStorage().bucket().file(receiptPath).getMetadata();
-    if (!/^image\\/(jpeg|png|webp)$/.test(String(metadata.contentType || '')) || Number(metadata.size) > 8 * 1024 * 1024) {
+    if (!/^image\/(jpeg|png|webp)$/.test(String(metadata.contentType || '')) || Number(metadata.size) > 8 * 1024 * 1024) {
       throw new HttpsError('failed-precondition', 'El comprobante debe ser una imagen válida de máximo 8 MB.');
     }
   } catch (error) {
