@@ -184,19 +184,30 @@ exports.releaseExpiredStockReservations = onSchedule('every 5 minutes', async ()
       const fresh = await tx.get(order.ref);
       if (!fresh.exists || fresh.data().reservaStock !== 'activa') return;
       const data = fresh.data();
+      const productIds = [...new Set((data.items || []).map(line => line.productId))];
+      const productSnaps = await Promise.all(productIds.map(id => tx.get(db.collection('productos').doc(id))));
+      const products = new Map(productSnaps.map(snap => [snap.id, snap]));
+      const restores = new Map();
       for (const line of data.items || []) {
-        const productRef = db.collection('productos').doc(line.productId);
-        const pSnap = await tx.get(productRef);
-        if (!pSnap.exists) continue;
-        const p = pSnap.data();
+        const snap = products.get(line.productId);
+        if (!snap?.exists) continue;
         const key = line.talla;
-        if (p.tallasStock && Object.prototype.hasOwnProperty.call(p.tallasStock, key)) {
-          tx.update(productRef, {
-            ['tallasStock.' + key]: Number(p.tallasStock[key] || 0) + Number(line.cantidad || 0),
-            stock: Number(p.stock || 0) + Number(line.cantidad || 0),
-            updatedAt: FieldValue.serverTimestamp()
-          });
-        }
+        const restoreKey = line.productId + ':' + key;
+        if (!restores.has(restoreKey)) restores.set(restoreKey, { productId: line.productId, key, quantity: 0 });
+        restores.get(restoreKey).quantity += Number(line.cantidad || 0);
+      }
+      const byProduct = new Map();
+      for (const restore of restores.values()) {
+        const snap = products.get(restore.productId);
+        const p = snap.data();
+        if (!p.tallasStock || !Object.prototype.hasOwnProperty.call(p.tallasStock, restore.key)) continue;
+        if (!byProduct.has(restore.productId)) byProduct.set(restore.productId, { ref: snap.ref, p, total: 0, updates: {} });
+        const group = byProduct.get(restore.productId);
+        group.total += restore.quantity;
+        group.updates['tallasStock.' + restore.key] = Number(p.tallasStock[restore.key] || 0) + restore.quantity;
+      }
+      for (const group of byProduct.values()) {
+        tx.update(group.ref, { ...group.updates, stock: Number(group.p.stock || 0) + group.total, updatedAt: FieldValue.serverTimestamp() });
       }
       tx.update(order.ref, { reservaStock: 'liberada', estado: 'Reserva expirada', updatedAt: FieldValue.serverTimestamp() });
     });
