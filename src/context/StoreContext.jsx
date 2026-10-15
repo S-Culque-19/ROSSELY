@@ -113,11 +113,11 @@ export const StoreProvider = ({ children }) => {
   }, [usuarioActual?.uid, esAdmin]);
 
   useEffect(() => {
-    if (!usuarioActual) { setAvisosGlobales([]); return undefined; }
+    if (!usuarioActual || !esAdmin) { setAvisosGlobales([]); return undefined; }
     const q = query(collection(db, 'avisos_gerenciales'), orderBy('createdAt', 'desc'));
     return onSnapshot(q, (snapshot) => setAvisosGlobales(snapshot.docs.map(d => ({ id: d.id, ...d.data() }))),
       (error) => console.warn('Avisos no disponibles:', error));
-  }, [usuarioActual?.uid]);
+  }, [usuarioActual?.uid, esAdmin]);
 
   useEffect(() => {
     localStorage.setItem('rossely_carrito', JSON.stringify(carrito));
