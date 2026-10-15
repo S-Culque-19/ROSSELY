@@ -291,7 +291,7 @@ export default function AdminDashboardView() {
     }
   };
 
-  const handleVerificarSuscripcion = async (subId, userId, nuevoEstado) => {
+  const handleVerificarSuscripcion = async (subId, nuevoEstado) => {
     try {
       if (nuevoEstado === 'Verificado') {
         const verificar = httpsCallable(functions, 'verifySubscriptionPayment');
@@ -515,6 +515,7 @@ export default function AdminDashboardView() {
                 <label className="block text-[11px] font-bold text-stone-700 mb-1">Colección / Edición</label>
                 <select value={coleccionSeleccionada} onChange={e => setColeccionSeleccionada(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none font-medium">
                   <option value="Colección Exclusiva">Colección Exclusiva</option>
+                <option value="Colección Exclusiva">Colección Exclusiva</option>
                 {colecciones.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
                 </select>
               </div>
@@ -797,7 +798,7 @@ export default function AdminDashboardView() {
                 <span className={`px-3 py-1 rounded-full font-bold text-[10px] ${sub.estado === 'Verificado' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
                   {sub.estado === 'Verificado' ? '✓ Verificado (Check Verde)' : '✕ Por Verificar (X Roja)'}
                 </span>
-                <button onClick={() => handleVerificarSuscripcion(sub.id, sub.uid, sub.estado === 'Por Verificar' ? 'Verificado' : 'Rechazado')} disabled={sub.estado !== 'Por Verificar'} className="bg-[#701A3B] disabled:opacity-50 text-white px-4 py-2 rounded-xl font-bold uppercase cursor-pointer">
+                <button onClick={() => handleVerificarSuscripcion(sub.id, sub.estado === 'Por Verificar' ? 'Verificado' : 'Rechazado')} disabled={sub.estado !== 'Por Verificar'} className="bg-[#701A3B] disabled:opacity-50 text-white px-4 py-2 rounded-xl font-bold uppercase cursor-pointer">
                   {sub.estado === 'Verificado' ? 'Aprobada' : sub.estado === 'Rechazado' ? 'Rechazada' : 'Aprobar y Verificar'}
                 </button>
               </div>
