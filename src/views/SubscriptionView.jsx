@@ -7,13 +7,14 @@ import { Crown, Sparkles, UploadCloud, Loader2, CheckCircle2, ArrowLeft, ShieldC
 
 
 export default function SubscriptionView() {
-  const { usuarioActual, navegarA } = useStore();
+  const { usuarioActual, navegarA, authCargando } = useStore();
   const [numeroOperacion, setNumeroOperacion] = useState('');
   const [comprobanteFile, setComprobanteFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState('');
   const [procesando, setProcesando] = useState(false);
   const [enviadoExito, setEnviadoExito] = useState(false);
 
+  if (authCargando) return <div className="min-h-[60vh] flex items-center justify-center text-sm text-[#701A3B]">Verificando sesión segura…</div>;
   if (!usuarioActual) {
     navegarA('auth');
     return null;
