@@ -6,7 +6,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../context/StoreContext';
 import { db, functions, storage } from '../firebase';
 import { httpsCallable } from 'firebase/functions';
-import { ref, getDownloadURL } from 'firebase/storage';
+import { ref, getBlob } from 'firebase/storage';
 import { 
   collection, 
   addDoc, 
@@ -307,8 +307,10 @@ export default function AdminDashboardView() {
   const abrirComprobante = async (path) => {
     if (!path) return mostrarToast('Esta solicitud no tiene un comprobante adjunto.');
     try {
-      const url = await getDownloadURL(ref(storage, path));
-      window.open(url, '_blank', 'noopener,noreferrer');
+      const blob = await getBlob(ref(storage, path));
+      const url = URL.createObjectURL(blob);
+      const opened = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!opened) { URL.revokeObjectURL(url); mostrarToast('El navegador bloqueó la ventana del comprobante.'); }
     } catch (err) {
       mostrarToast('No se pudo abrir el comprobante. Verifica los permisos de Storage.');
     }
@@ -649,7 +651,7 @@ export default function AdminDashboardView() {
                   className={`font-bold px-3 py-1.5 rounded-xl border ${p.estado === 'Entregado' ? 'bg-emerald-100 text-emerald-800' : 'bg-white'}`}
                 >
                   <option value="Pendiente de Verificación">Pendiente de Verificación</option>
-                  <option value="Pago Verificado">Pago Verificado</option>
+                  <option value="Verificado">Pago Verificado</option>
                   <option value="En Confección/Empaque">En Confección/Empaque</option>
                   <option value="Dejado en Shalom Chimbote">Dejado en Shalom Chimbote</option>
                   <option value="En Tránsito a Destino">En Tránsito a Destino</option>
