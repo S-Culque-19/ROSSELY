@@ -667,7 +667,7 @@ export default function AdminDashboardView() {
                 </div>
                 <select
                   value={p.estado}
-                  onChange={(e) => actualizarEstadoPedido(p.id, e.target.value)}
+                  onChange={(e) => actualizarEstadoPedido(p.id, e.target.value).catch(err => mostrarToast(err?.message || 'No se pudo cambiar el estado del pedido.'))}
                   className={`font-bold px-3 py-1.5 rounded-xl border ${p.estado === 'Entregado' ? 'bg-emerald-100 text-emerald-800' : 'bg-white'}`}
                 >
                   <option value="Pendiente de Verificación">Pendiente de Verificación</option>
