@@ -68,7 +68,9 @@ export const StoreProvider = ({ children }) => {
         nombre: profile.nombre || firebaseUser.displayName || (firebaseUser.email || '').split('@')[0],
         role: admin ? 'admin' : 'user',
         puntos: Number(profile.puntos) || 0,
-        suscripcion: profile.suscripcion || { tipo: 'free' }
+        suscripcion: profile.suscripcion?.tipo === 'premium' && (!profile.suscripcion.fechaExpiracion || new Date(profile.suscripcion.fechaExpiracion).getTime() <= Date.now())
+          ? { ...profile.suscripcion, tipo: 'expired' }
+          : (profile.suscripcion || { tipo: 'free' })
       };
       setUsuarioActual(user);
       if (admin) setCurrentView((v) => v === 'auth' ? 'admin' : v);
