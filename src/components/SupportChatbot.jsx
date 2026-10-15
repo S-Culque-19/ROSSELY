@@ -135,8 +135,7 @@ export default function SupportChatbot() {
       await setDoc(doc(db, 'chats', chatId), {
         ultimoMensaje: txt,
         ultimaFecha: serverTimestamp(),
-        noLeidoPorAdmin: true,
-        estado: 'activo'
+        noLeidoPorAdmin: true
       }, { merge: true });
     } catch (err) {
       console.error("Error al enviar mensaje:", err);
