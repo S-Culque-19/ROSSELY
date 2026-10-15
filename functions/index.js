@@ -3,6 +3,7 @@ const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
+const { getStorage } = require('firebase-admin/storage');
 
 initializeApp();
 const db = getFirestore();
@@ -63,6 +64,15 @@ exports.createOrder = onCall(async (request) => {
   const receiptPath = request.data?.comprobanteStoragePath;
   if (typeof receiptPath !== 'string' || !receiptPath.startsWith('comprobantes/' + uid + '/')) {
     throw new HttpsError('invalid-argument', 'Adjunta un comprobante de pago válido.');
+  }
+  try {
+    const [metadata] = await getStorage().bucket().file(receiptPath).getMetadata();
+    if (!/^image\\/(jpeg|png|webp)$/.test(String(metadata.contentType || '')) || Number(metadata.size) > 8 * 1024 * 1024) {
+      throw new HttpsError('failed-precondition', 'El comprobante debe ser una imagen válida de máximo 8 MB.');
+    }
+  } catch (error) {
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError('failed-precondition', 'No se encontró el comprobante subido. Vuelve a adjuntarlo.');
   }
 
   const orderRef = db.collection('pedidos').doc();
