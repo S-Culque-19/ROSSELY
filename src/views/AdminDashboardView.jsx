@@ -663,7 +663,8 @@ export default function AdminDashboardView() {
               <div key={p.id} className="p-4 rounded-2xl border border-[#F8D7E0] bg-[#FFFBFB] flex justify-between items-center text-xs">
                 <div>
                   <p className="font-bold text-[#701A3B]">Pedido #{p.id.slice(0, 8)} — {p.cliente?.nombre}</p>
-                  <p className="text-stone-500">Destino: {p.cliente?.ciudad} | Total: S/. {parseFloat(p.total).toFixed(2)}</p>
+                  <p className="text-stone-500">Destino: {p.cliente?.ciudad || p.cliente?.distrito || p.cliente?.direccion || "Sin destino"} | Total: S/. {parseFloat(p.total || 0).toFixed(2)}</p>
+                  {p.comprobanteStoragePath && <button type="button" onClick={() => abrirComprobante(p.comprobanteStoragePath)} className="mt-1 text-[#701A3B] underline font-bold">Ver comprobante de pago</button>}
                 </div>
                 <select
                   value={p.estado}
