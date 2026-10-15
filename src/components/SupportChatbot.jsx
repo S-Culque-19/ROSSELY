@@ -26,9 +26,6 @@ import {
 export default function SupportChatbot() {
   const { esAdmin, usuarioActual, navegarA } = useStore();
 
-  // El administrador jamás ve la burbuja de cliente
-  if (esAdmin) return null;
-
   const [abierto, setAbierto] = useState(false);
   const [modoEnVivo, setModoEnVivo] = useState(false);
   const [chatId, setChatId] = useState(null);
@@ -147,6 +144,8 @@ export default function SupportChatbot() {
       setCargandoEnvio(false);
     }
   };
+
+  if (esAdmin) return null;
 
   return (
     <>
