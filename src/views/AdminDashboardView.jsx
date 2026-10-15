@@ -74,6 +74,7 @@ export default function AdminDashboardView() {
   const [editXL, setEditXL] = useState('0');
 
   const [imagenModalGrande, setImagenModalGrande] = useState(null);
+  const [comprobanteModalUrl, setComprobanteModalUrl] = useState(null);
   const [nuevaColeccionInput, setNuevaColeccionInput] = useState('');
   const [chats, setChats] = useState([]);
   const [chatSeleccionado, setChatSeleccionado] = useState(null);
@@ -331,13 +332,13 @@ export default function AdminDashboardView() {
     if (!path) return mostrarToast('Esta solicitud no tiene un comprobante adjunto.');
     try {
       const blob = await getBlob(ref(storage, path));
-      const url = URL.createObjectURL(blob);
-      const opened = window.open(url, '_blank', 'noopener,noreferrer');
-      if (!opened) { URL.revokeObjectURL(url); mostrarToast('El navegador bloqueó la ventana del comprobante.'); }
+      setComprobanteModalUrl(URL.createObjectURL(blob));
     } catch (err) {
-      mostrarToast('No se pudo abrir el comprobante. Verifica los permisos de Storage.');
+      mostrarToast('No se pudo abrir el comprobante. Verifica los permisos y CORS de Storage.');
     }
   };
+
+  useEffect(() => () => { if (comprobanteModalUrl) URL.revokeObjectURL(comprobanteModalUrl); }, [comprobanteModalUrl]);
 
   const ahora = new Date();
   const pedidosFiltrados = pedidos.filter(p => {
@@ -591,6 +592,15 @@ export default function AdminDashboardView() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {comprobanteModalUrl && (
+        <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Comprobante de pago">
+          <div className="relative bg-white rounded-2xl p-4 max-w-3xl max-h-[90vh] w-full flex flex-col items-center gap-3">
+            <button type="button" onClick={() => setComprobanteModalUrl(null)} className="self-end bg-[#701A3B] text-white rounded-full px-4 py-2 text-xs font-bold">Cerrar comprobante</button>
+            <img src={comprobanteModalUrl} alt="Comprobante privado de pago" className="max-h-[75vh] max-w-full object-contain rounded-xl" />
           </div>
         </div>
       )}
