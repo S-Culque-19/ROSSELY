@@ -2,33 +2,6 @@ import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
 import { ShieldCheck, QrCode, UploadCloud, CheckCircle2, Loader2, ArrowLeft, Truck, Package } from 'lucide-react';
 
-const optimizarCapturaCanvas = (file) => {
-  return new Promise((resolve, reject) => {
-    if (!file) return reject(new Error("Archivo inválido"));
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (e) => {
-      const img = new Image();
-      img.src = e.target.result;
-      img.onload = () => {
-        let w = img.width;
-        let h = img.height;
-        if (w > 900) {
-          h = Math.round((h * 900) / w);
-          w = 900;
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', 0.7));
-      };
-      img.onerror = reject;
-    };
-    reader.onerror = reject;
-  });
-};
 
 export default function CheckoutView() {
   const { carrito, registrarPedido, navegarA, usuarioActual } = useStore();
