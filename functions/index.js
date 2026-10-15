@@ -235,3 +235,25 @@ exports.verifyOrderPayment = onCall(async (request) => {
   });
   return { success: true, orderId };
 });
+
+exports.verifySubscriptionPayment = onCall(async (request) => {
+  const adminUid = requireAdmin(request);
+  const subscriptionId = String(request.data?.subscriptionId || '');
+  if (!subscriptionId) throw new HttpsError('invalid-argument', 'Falta el identificador de la solicitud.');
+  const subscriptionRef = db.collection('suscripciones_pendientes').doc(subscriptionId);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(subscriptionRef);
+    if (!snap.exists) throw new HttpsError('not-found', 'No se encontró la solicitud.');
+    const subscription = snap.data();
+    if (subscription.estado === 'Verificado') return;
+    if (subscription.estado !== 'Por Verificar') throw new HttpsError('failed-precondition', 'La solicitud ya fue revisada.');
+    const userRef = db.collection('usuarios').doc(subscription.uid);
+    const userSnap = await tx.get(userRef);
+    if (!userSnap.exists) throw new HttpsError('not-found', 'No se encontró el perfil del cliente.');
+    const start = new Date();
+    const expires = new Date(start.getTime() + 30 * 24 * 60 * 60 * 1000);
+    tx.update(userRef, { suscripcion: { tipo: 'premium', fechaActivacion: start.toISOString(), fechaExpiracion: expires.toISOString(), subscriptionId }, updatedAt: FieldValue.serverTimestamp() });
+    tx.update(subscriptionRef, { estado: 'Verificado', revisadoPor: adminUid, revisadoAt: FieldValue.serverTimestamp(), fechaActivacion: start.toISOString(), fechaExpiracion: expires.toISOString() });
+  });
+  return { success: true, subscriptionId };
+});
