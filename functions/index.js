@@ -52,7 +52,7 @@ exports.createOrder = onCall(async (request) => {
   const items = validateItems(request.data?.items);
   const datosEnvio = request.data?.datosEnvio || {};
   if (!String(datosEnvio.nombre || '').trim() || !String(datosEnvio.telefono || '').trim() ||
-      !String(datosEnvio.direccion || datosEnvio.distrito || '').trim() || !/^\\d{8,9}$/.test(String(datosEnvio.dni || ''))) {
+      !String(datosEnvio.direccion || datosEnvio.distrito || '').trim() || !/^\d{8,9}$/.test(String(datosEnvio.dni || ''))) {
     throw new HttpsError('invalid-argument', 'Completa nombre, teléfono, dirección de entrega y DNI válido.');
   }
   const shippingRates = { local: 5, lima: 12, provincia: 15 };
