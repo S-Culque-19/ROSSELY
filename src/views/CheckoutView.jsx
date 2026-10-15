@@ -57,6 +57,8 @@ export default function CheckoutView() {
         dni,
         telefono,
         ciudad,
+        distrito: ciudad,
+        direccion: agenciaShalom,
         agenciaShalom,
         tipoEnvio,
         costoEnvio,
