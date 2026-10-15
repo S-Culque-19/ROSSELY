@@ -46,7 +46,7 @@ export default function CheckoutView() {
   const handleConfirmarCompra = async (e) => {
     e.preventDefault();
     if (carrito.length === 0) return alert("Tu bolsa de compras está vacía.");
-    if (!/^\\d{8,9}$/.test(dni)) return alert("Por favor ingresa un DNI válido de 8 o 9 dígitos para el recojo en Shalom.");
+    if (!/^\d{8,9}$/.test(dni)) return alert("Por favor ingresa un DNI válido de 8 o 9 dígitos para el recojo en Shalom.");
     if (!telefono.trim()) return alert('Ingresa un teléfono de contacto válido.');
     if (!comprobanteFile) return alert("Por favor adjunta la captura del comprobante de transferencia o QR.");
 
