@@ -553,6 +553,7 @@ export default function AdminDashboardView() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
+                    <button onClick={() => editarProducto(p.id, { publicado: p.publicado !== true, estado: p.publicado === true ? 'borrador' : 'publicado', archivado: false }).then(() => mostrarToast(p.publicado === true ? 'Prenda despublicada.' : 'Prenda publicada en el catálogo.')).catch(err => mostrarToast(err?.message || 'No se pudo cambiar la publicación.'))} className="px-2 py-1 text-[10px] font-bold text-[#701A3B] hover:bg-pink-50 rounded-lg cursor-pointer" title="Publicar o despublicar">{p.publicado === true ? 'Despublicar' : 'Publicar'}</button>
                     <button onClick={() => iniciarEdicion(p)} className="p-2 text-[#701A3B] hover:bg-pink-50 rounded-lg cursor-pointer" title="Editar Prenda"><Edit3 className="w-4 h-4" /></button>
                     <button onClick={() => eliminarProducto(p.id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg cursor-pointer" title="Eliminar"><Trash2 className="w-4 h-4" /></button>
                   </div>
