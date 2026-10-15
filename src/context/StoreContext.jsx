@@ -8,7 +8,8 @@ import {
   signOut, sendPasswordResetEmail, updateProfile, getIdTokenResult
 } from 'firebase/auth';
 import { httpsCallable } from 'firebase/functions';
-import { auth, db, functions } from '../firebase';
+import { auth, db, functions, storage } from '../firebase';
+import { ref, uploadBytes } from 'firebase/storage';
 
 const StoreContext = createContext(null);
 const cleanError = (error) => {
@@ -85,7 +86,8 @@ export const StoreProvider = ({ children }) => {
   }), []);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'productos'), (snapshot) => {
+    const productQuery = esAdmin ? collection(db, 'productos') : query(collection(db, 'productos'), where('publicado', '==', true));
+    const unsub = onSnapshot(productQuery, (snapshot) => {
       setProductos(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
       setCargandoProductos(false);
     }, (error) => {
@@ -93,7 +95,7 @@ export const StoreProvider = ({ children }) => {
       setCargandoProductos(false);
     });
     return unsub;
-  }, []);
+  }, [esAdmin]);
 
   useEffect(() => onSnapshot(collection(db, 'colecciones'), (snapshot) => {
     if (!snapshot.empty) setColecciones(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -188,6 +190,14 @@ export const StoreProvider = ({ children }) => {
 
   const registrarPedido = async (datosEnvio, comprobante = null) => {
     if (!auth.currentUser || !carrito.length) throw new Error('Inicia sesión y añade productos antes de confirmar.');
+    let comprobanteStoragePath = null;
+    if (comprobante instanceof File) {
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(comprobante.type) || comprobante.size > 8 * 1024 * 1024) {
+        throw new Error('El comprobante debe ser JPEG, PNG o WebP y pesar como máximo 8 MB.');
+      }
+      comprobanteStoragePath = 'comprobantes/' + auth.currentUser.uid + '/' + crypto.randomUUID() + '_' + comprobante.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      await uploadBytes(ref(storage, comprobanteStoragePath), comprobante, { contentType: comprobante.type });
+    }
     const crearPedido = httpsCallable(functions, 'createOrder');
     const result = await crearPedido({
       items: carrito.map(item => ({
@@ -195,7 +205,7 @@ export const StoreProvider = ({ children }) => {
         color: item.colorSeleccionado || 'Rosa', cantidad: Number(item.cantidad) || 1
       })),
       datosEnvio,
-      comprobanteStoragePath: typeof comprobante === 'string' && !comprobante.startsWith('data:') ? comprobante : null
+      comprobanteStoragePath
     });
     setCarrito([]);
     localStorage.removeItem('rossely_carrito');
