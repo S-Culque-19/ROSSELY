@@ -35,7 +35,7 @@ service cloud.firestore {
       allow read: if admin() || (signedIn() && resource.data.uid == request.auth.uid);
       allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
       allow update: if admin() || (signedIn() && resource.data.uid == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimaFecha','ultimoMensaje','noLeidoPorAdmin']));
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimaFecha','ultimoMensaje','noLeidoPorAdmin','estado']));
       allow delete: if admin();
       match /mensajes/{messageId} {
         function parentOwner() {
