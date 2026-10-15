@@ -46,10 +46,10 @@ export default function AdminDashboardView() {
   const [costoUnitario, setCostoUnitario] = useState('');
   const [coleccionSeleccionada, setColeccionSeleccionada] = useState(colecciones[0]?.nombre || 'Colección Exclusiva');
   
-  const [unidadesS, setUnidadesS] = useState('5');
-  const [unidadesM, setUnidadesM] = useState('8');
-  const [unidadesL, setUnidadesL] = useState('5');
-  const [unidadesXL, setUnidadesXL] = useState('2');
+  const [unidadesS, setUnidadesS] = useState('0');
+  const [unidadesM, setUnidadesM] = useState('0');
+  const [unidadesL, setUnidadesL] = useState('0');
+  const [unidadesXL, setUnidadesXL] = useState('0');
   const [descripcion, setDescripcion] = useState('');
 
   const [archivosSeleccionados, setArchivosSeleccionados] = useState([]);
@@ -207,10 +207,10 @@ export default function AdminDashboardView() {
       setDescripcion('');
       setArchivosSeleccionados([]);
       setPrevisualizaciones(prev => { prev.forEach(url => URL.revokeObjectURL(url)); return []; });
-      setUnidadesS('5');
-      setUnidadesM('8');
-      setUnidadesL('5');
-      setUnidadesXL('2');
+      setUnidadesS('0');
+      setUnidadesM('0');
+      setUnidadesL('0');
+      setUnidadesXL('0');
     } catch (err) {
       console.error("Error crítico al registrar producto:", err);
       mostrarToast(err?.message || 'Error al subir las imágenes o guardar en base de datos.');
@@ -244,9 +244,9 @@ export default function AdminDashboardView() {
     setEditCosto(p.costoUnitario || (p.precio ? p.precio * 0.4 : ''));
     setEditColeccion(p.coleccion || colecciones[0]?.nombre || '');
     setEditDescripcion(p.descripcion || '');
-    setEditS(p.tallasStock?.S ?? '4');
-    setEditM(p.tallasStock?.M ?? '4');
-    setEditL(p.tallasStock?.L ?? '4');
+    setEditS(p.tallasStock?.S ?? '0');
+    setEditM(p.tallasStock?.M ?? '0');
+    setEditL(p.tallasStock?.L ?? '0');
     setEditXL(p.tallasStock?.XL ?? '0');
   };
 
