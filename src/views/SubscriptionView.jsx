@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
-import { db } from '../firebase';
+import { db, auth, storage } from '../firebase';
+import { ref, uploadBytes } from 'firebase/storage';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { Crown, Sparkles, UploadCloud, Loader2, CheckCircle2, ArrowLeft, ShieldCheck, QrCode } from 'lucide-react';
 
@@ -62,16 +63,20 @@ export default function SubscriptionView() {
 
     setProcesando(true);
     try {
-      const base64Img = await optimizarCapturaCanvas(comprobanteFile);
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(comprobanteFile.type) || comprobanteFile.size > 8 * 1024 * 1024) throw new Error('Adjunta una imagen JPEG, PNG o WebP de máximo 8 MB.');
+      const uid = auth.currentUser?.uid;
+      if (!uid) throw new Error('Tu sesión expiró. Inicia sesión nuevamente.');
+      const comprobantePath = 'comprobantes/' + uid + '/' + crypto.randomUUID() + '_' + comprobanteFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      await uploadBytes(ref(storage, comprobantePath), comprobanteFile, { contentType: comprobanteFile.type });
 
-      // Guardamos la solicitud de suscripción para que el admin la valide con Check Verde o X Roja
+      // El comprobante se almacena en Storage privado; Firestore guarda únicamente su ruta.
       await addDoc(collection(db, 'suscripciones_pendientes'), {
-        uid: usuarioActual.uid || usuarioActual.id,
+        uid,
         nombre: usuarioActual.nombre,
         email: usuarioActual.email,
         monto: 60.00,
         numeroOperacion: numeroOperacion.trim(),
-        comprobanteImg: base64Img,
+        comprobantePath,
         estado: 'Por Verificar', // Por defecto con X roja en el panel de admin
         createdAt: serverTimestamp()
       });
