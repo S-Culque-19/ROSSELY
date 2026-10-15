@@ -304,6 +304,25 @@ export default function AdminDashboardView() {
     }
   };
 
+  const handleEnviarRespuestaAdmin = async (e) => {
+    e.preventDefault();
+    const texto = respuestaAdmin.trim();
+    if (!texto || !chatSeleccionado?.id || !auth.currentUser) return;
+    try {
+      await addDoc(collection(db, 'chats', chatSeleccionado.id, 'mensajes'), {
+        uid: auth.currentUser.uid, remitente: 'admin', texto, timestamp: serverTimestamp()
+      });
+      await updateDoc(doc(db, 'chats', chatSeleccionado.id), {
+        ultimoMensaje: texto, ultimaFecha: serverTimestamp(),
+        noLeidoPorAdmin: false, noLeidoPorCliente: true
+      });
+      setRespuestaAdmin('');
+    } catch (err) {
+      console.error('No se pudo enviar la respuesta:', err);
+      mostrarToast('No se pudo enviar el mensaje. Verifica la conexión y los permisos.');
+    }
+  };
+
   const abrirComprobante = async (path) => {
     if (!path) return mostrarToast('Esta solicitud no tiene un comprobante adjunto.');
     try {
