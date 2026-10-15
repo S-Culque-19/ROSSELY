@@ -1,45 +1,21 @@
 import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
-import { db } from '../firebase';
+import { db, auth, storage } from '../firebase';
+import { ref, uploadBytes } from 'firebase/storage';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { Crown, Sparkles, UploadCloud, Loader2, CheckCircle2, ArrowLeft, ShieldCheck, QrCode } from 'lucide-react';
 
-const optimizarCapturaCanvas = (file) => {
-  return new Promise((resolve, reject) => {
-    if (!file) return reject(new Error("Archivo inválido"));
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (e) => {
-      const img = new Image();
-      img.src = e.target.result;
-      img.onload = () => {
-        let w = img.width;
-        let h = img.height;
-        if (w > 900) {
-          h = Math.round((h * 900) / w);
-          w = 900;
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', 0.7));
-      };
-      img.onerror = reject;
-    };
-    reader.onerror = reject;
-  });
-};
 
 export default function SubscriptionView() {
-  const { usuarioActual, navegarA } = useStore();
+  const { usuarioActual, navegarA, authCargando } = useStore();
   const [numeroOperacion, setNumeroOperacion] = useState('');
   const [comprobanteFile, setComprobanteFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState('');
   const [procesando, setProcesando] = useState(false);
   const [enviadoExito, setEnviadoExito] = useState(false);
+  const [errorSolicitud, setErrorSolicitud] = useState('');
 
+  if (authCargando) return <div className="min-h-[60vh] flex items-center justify-center text-sm text-[#701A3B]">Verificando sesión segura…</div>;
   if (!usuarioActual) {
     navegarA('auth');
     return null;
@@ -55,23 +31,28 @@ export default function SubscriptionView() {
 
   const handleEnviarSuscripcion = async (e) => {
     e.preventDefault();
+    setErrorSolicitud('');
     if (!numeroOperacion.trim() || !comprobanteFile) {
-      alert("Por favor ingresa el número de operación y adjunta la captura del pago.");
+      setErrorSolicitud('Ingresa el número de operación y adjunta la captura del pago.');
       return;
     }
 
     setProcesando(true);
     try {
-      const base64Img = await optimizarCapturaCanvas(comprobanteFile);
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(comprobanteFile.type) || comprobanteFile.size > 8 * 1024 * 1024) throw new Error('Adjunta una imagen JPEG, PNG o WebP de máximo 8 MB.');
+      const uid = auth.currentUser?.uid;
+      if (!uid) throw new Error('Tu sesión expiró. Inicia sesión nuevamente.');
+      const comprobantePath = 'comprobantes/' + uid + '/' + crypto.randomUUID() + '_' + comprobanteFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      await uploadBytes(ref(storage, comprobantePath), comprobanteFile, { contentType: comprobanteFile.type });
 
-      // Guardamos la solicitud de suscripción para que el admin la valide con Check Verde o X Roja
+      // El comprobante se almacena en Storage privado; Firestore guarda únicamente su ruta.
       await addDoc(collection(db, 'suscripciones_pendientes'), {
-        uid: usuarioActual.uid || usuarioActual.id,
+        uid,
         nombre: usuarioActual.nombre,
         email: usuarioActual.email,
         monto: 60.00,
         numeroOperacion: numeroOperacion.trim(),
-        comprobanteImg: base64Img,
+        comprobantePath,
         estado: 'Por Verificar', // Por defecto con X roja en el panel de admin
         createdAt: serverTimestamp()
       });
@@ -79,7 +60,7 @@ export default function SubscriptionView() {
       setEnviadoExito(true);
     } catch (err) {
       console.error("Error al enviar suscripción:", err);
-      alert("No se pudo enviar el comprobante.");
+      setErrorSolicitud(err?.message || 'No se pudo enviar el comprobante.');
     } finally {
       setProcesando(false);
     }
@@ -136,6 +117,7 @@ export default function SubscriptionView() {
           </div>
         ) : (
           <form onSubmit={handleEnviarSuscripcion} className="space-y-5 max-w-md mx-auto text-xs">
+            {errorSolicitud && <div role="alert" className="p-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-800">{errorSolicitud}</div>}
             <div>
               <label className="block font-bold text-stone-700 uppercase tracking-wider mb-1">Número de Operación Yape / Plin *</label>
               <input 

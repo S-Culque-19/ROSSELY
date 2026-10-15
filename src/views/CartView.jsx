@@ -4,7 +4,7 @@ import { useStore } from '../context/StoreContext';
 export default function CartView() {
   const { carrito, removerDelCarrito, usuarioActual, navegarA } = useStore();
 
-  const subtotal = carrito.reduce((acc, item) => acc + item.precio, 0);
+  const subtotal = carrito.reduce((acc, item) => acc + (Number(item.precio) || 0) * (Number(item.cantidad) || 1), 0);
   const total = subtotal;
 
   const handleContinuarCompra = () => {

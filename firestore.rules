@@ -1,0 +1,76 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function admin() { return signedIn() && (request.auth.token.admin == true || request.auth.token.role == 'admin'); }
+    function owner(uid) { return signedIn() && request.auth.uid == uid; }
+
+    match /productos/{productId} {
+      allow read: if admin() || resource.data.publicado == true;
+      allow create: if admin()
+        && request.resource.data.precio is number && request.resource.data.precio >= 0
+        && request.resource.data.stock is number && request.resource.data.stock >= 0;
+      allow update: if admin()
+        && request.resource.data.precio is number && request.resource.data.precio >= 0
+        && request.resource.data.stock is number && request.resource.data.stock >= 0;
+      allow delete: if admin();
+    }
+    match /colecciones/{id} {
+      allow read: if true;
+      allow create, update, delete: if admin();
+    }
+    match /usuarios/{uid} {
+      allow read: if owner(uid) || admin();
+      allow create: if owner(uid)
+        && request.resource.data.uid == uid
+        && request.resource.data.role == 'user'
+        && request.resource.data.puntos == 0
+        && request.resource.data.suscripcion.tipo == 'free'
+        && request.resource.data.keys().hasOnly(['uid','email','nombre','role','puntos','suscripcion','fechaRegistro','createdAt']);
+      allow update: if admin()
+        || (owner(uid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nombre','telefono','direccion','updatedAt'])
+          && request.resource.data.get('role', 'user') == resource.data.get('role', 'user'));
+      allow delete: if admin();
+    }
+    match /pedidos/{orderId} {
+      allow read: if admin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create, update, delete: if false;
+    }
+    match /chats/{chatId} {
+      allow read: if admin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow update: if admin() || (signedIn() && resource.data.uid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimaFecha','ultimoMensaje','noLeidoPorAdmin','estado']));
+      allow delete: if admin();
+      match /mensajes/{messageId} {
+        function parentOwner() {
+          return exists(/databases/$(database)/documents/chats/$(chatId))
+            && get(/databases/$(database)/documents/chats/$(chatId)).data.uid == request.auth.uid;
+        }
+        allow read: if admin() || (signedIn() && parentOwner());
+        allow create: if signedIn() && (admin() || parentOwner())
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.texto is string
+          && request.resource.data.texto.size() <= 5000;
+        allow update, delete: if admin();
+      }
+    }
+    match /suscripciones_pendientes/{id} {
+      allow read: if admin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid
+        && request.resource.data.estado == 'Por Verificar'
+        && request.resource.data.monto == 60
+        && request.resource.data.numeroOperacion is string
+        && request.resource.data.numeroOperacion.size() > 0
+        && request.resource.data.comprobantePath is string
+        && request.resource.data.comprobantePath.matches('comprobantes/' + request.auth.uid + '/.*')
+        && request.resource.data.keys().hasOnly(['uid','nombre','email','monto','numeroOperacion','comprobantePath','estado','createdAt']);
+      allow update, delete: if admin();
+    }
+    match /avisos_gerenciales/{id} { allow read: if admin(); allow write: if admin(); }
+    match /movimientos_inventario/{id} { allow read: if admin(); allow write: if false; }
+    match /movimientos_puntos/{id} { allow read: if admin() || (signedIn() && resource.data.uid == request.auth.uid); allow write: if false; }
+    match /{document=**} { allow read, write: if false; }
+  }
+}

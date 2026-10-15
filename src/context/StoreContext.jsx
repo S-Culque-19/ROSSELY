@@ -1,365 +1,270 @@
-// ============================================================================
-// 1. STORE CONTEXT (src/context/StoreContext.jsx)
-// ============================================================================
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { db } from '../firebase';
-import { 
-  collection, 
-  onSnapshot, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  doc, 
-  setDoc,
-  serverTimestamp, 
-  query, 
-  orderBy,
-  getDocs,
-  where
+import {
+  collection, onSnapshot, addDoc, updateDoc, doc, setDoc,
+  serverTimestamp, query, orderBy, where, getDoc
 } from 'firebase/firestore';
+import {
+  onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+  signOut, sendPasswordResetEmail, updateProfile, getIdTokenResult
+} from 'firebase/auth';
+import { httpsCallable } from 'firebase/functions';
+import { auth, db, functions, storage } from '../firebase';
+import { ref, uploadBytes } from 'firebase/storage';
 
-const StoreContext = createContext();
+const StoreContext = createContext(null);
+const cleanError = (error) => {
+  const code = error?.code || '';
+  const messages = {
+    'auth/invalid-credential': 'Correo o contraseña incorrectos.',
+    'auth/user-not-found': 'No existe una cuenta con ese correo.',
+    'auth/wrong-password': 'Correo o contraseña incorrectos.',
+    'auth/email-already-in-use': 'Este correo ya está registrado.',
+    'auth/invalid-email': 'El correo electrónico no tiene un formato válido.',
+    'auth/weak-password': 'La contraseña debe tener al menos 6 caracteres.',
+    'auth/too-many-requests': 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.',
+    'auth/network-request-failed': 'No se pudo conectar. Revisa tu conexión.'
+  };
+  return messages[code] || error?.message || 'No se pudo completar la operación.';
+};
 
 export const StoreProvider = ({ children }) => {
   const [productos, setProductos] = useState([]);
-  const [colecciones, setColecciones] = useState([
-    { id: 'col_1', nombre: 'Colección Exclusiva • Atelier ROSSELY' },
-    { id: 'col_2', nombre: 'Edición Seda Imperial' },
-    { id: 'col_3', nombre: 'Satén de Novias & Veladas' }
-  ]);
+  const [colecciones, setColecciones] = useState([]);
   const [pedidos, setPedidos] = useState([]);
   const [avisosGlobales, setAvisosGlobales] = useState([]);
   const [cargandoProductos, setCargandoProductos] = useState(true);
-
-  const [usuarioActual, setUsuarioActual] = useState(() => {
-    try {
-      const saved = localStorage.getItem('rossely_sesion');
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
-
+  const [usuarioActual, setUsuarioActual] = useState(null);
+  const [authCargando, setAuthCargando] = useState(true);
   const [carrito, setCarrito] = useState(() => {
-    try {
-      const saved = localStorage.getItem('rossely_carrito');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
+    try { return JSON.parse(localStorage.getItem('rossely_carrito') || '[]'); }
+    catch { return []; }
   });
-
-  const [currentView, setCurrentView] = useState(() => {
-    try {
-      const saved = localStorage.getItem('rossely_sesion');
-      if (saved) {
-        const u = JSON.parse(saved);
-        if (u?.role === 'admin') return 'admin';
-      }
-    } catch {}
-    return 'home';
-  });
-
+  const [currentView, setCurrentView] = useState('home');
   const [selectedProduct, setSelectedProduct] = useState(null);
   const esAdmin = usuarioActual?.role === 'admin';
 
-  useEffect(() => {
+  // La sesión procede exclusivamente de Firebase Authentication, nunca de localStorage.
+  useEffect(() => onAuthStateChanged(auth, async (firebaseUser) => {
+    if (!firebaseUser) {
+      setUsuarioActual(null);
+      setAuthCargando(false);
+      setCurrentView((v) => v === 'admin' ? 'home' : v);
+      return;
+    }
     try {
-      const colRef = collection(db, 'avisos_gerenciales');
-      const q = query(colRef, orderBy('createdAt', 'desc'));
-      const unsub = onSnapshot(q, (snapshot) => {
-        setAvisosGlobales(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-      }, () => {});
-      return () => unsub();
-    } catch (e) {}
-  }, []);
-
-  useEffect(() => {
-    try {
-      const colRef = collection(db, 'colecciones');
-      const unsub = onSnapshot(colRef, (snapshot) => {
-        if (!snapshot.empty) {
-          setColecciones(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-        }
-      }, () => {});
-      return () => unsub();
-    } catch (e) {}
-  }, []);
-
-  useEffect(() => {
-    try {
-      const colRef = collection(db, 'productos');
-      const q = query(colRef, orderBy('createdAt', 'desc'));
-      const unsub = onSnapshot(q, (snapshot) => {
-        setProductos(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-        setCargandoProductos(false);
-      }, () => {
-        const unsubFallback = onSnapshot(colRef, (snapshot) => {
-          setProductos(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-          setCargandoProductos(false);
-        });
-        return () => unsubFallback();
+      const token = await getIdTokenResult(firebaseUser, true);
+      const admin = token.claims.admin === true || token.claims.role === 'admin';
+      const profileRef = doc(db, 'usuarios', firebaseUser.uid);
+      const profileSnap = await getDoc(profileRef);
+      const profile = profileSnap.exists() ? profileSnap.data() : {};
+      const user = {
+        uid: firebaseUser.uid,
+        id: firebaseUser.uid,
+        email: firebaseUser.email || '',
+        nombre: profile.nombre || firebaseUser.displayName || (firebaseUser.email || '').split('@')[0],
+        role: admin ? 'admin' : 'user',
+        puntos: Number(profile.puntos) || 0,
+        suscripcion: profile.suscripcion?.tipo === 'premium' && (!profile.suscripcion.fechaExpiracion || new Date(profile.suscripcion.fechaExpiracion).getTime() <= Date.now())
+          ? { ...profile.suscripcion, tipo: 'expired' }
+          : (profile.suscripcion || { tipo: 'free' })
+      };
+      setUsuarioActual(user);
+      if (admin) setCurrentView((v) => v === 'auth' ? 'admin' : v);
+      else setCurrentView((v) => (v === 'admin' || v === 'auth') ? 'home' : v);
+    } catch (error) {
+      console.error('No se pudo cargar el perfil autenticado:', error);
+      setUsuarioActual({
+        uid: firebaseUser.uid, id: firebaseUser.uid,
+        email: firebaseUser.email || '', nombre: firebaseUser.displayName || '',
+        role: 'user', puntos: 0, suscripcion: { tipo: 'free' }
       });
-      return () => unsub();
-    } catch (e) {
+    } finally {
+      setAuthCargando(false);
+    }
+  }), []);
+
+  useEffect(() => {
+    const productQuery = esAdmin ? collection(db, 'productos') : query(collection(db, 'productos'), where('publicado', '==', true));
+    const unsub = onSnapshot(productQuery, (snapshot) => {
+      setProductos(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
       setCargandoProductos(false);
-    }
-  }, []);
+    }, (error) => {
+      console.error('No se pudo cargar el catálogo:', error);
+      setCargandoProductos(false);
+    });
+    return unsub;
+  }, [esAdmin]);
+
+  useEffect(() => onSnapshot(collection(db, 'colecciones'), (snapshot) => {
+    if (!snapshot.empty) setColecciones(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+  }, (error) => console.warn('Colecciones no disponibles:', error)), []);
 
   useEffect(() => {
-    try {
-      const colRef = collection(db, 'pedidos');
-      const q = query(colRef, orderBy('createdAt', 'desc'));
-      const unsub = onSnapshot(q, (snapshot) => {
-        setPedidos(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-      }, () => {});
-      return () => unsub();
-    } catch (e) {}
-  }, []);
+    if (!usuarioActual) { setPedidos([]); return undefined; }
+    const ref = collection(db, 'pedidos');
+    const q = esAdmin ? query(ref, orderBy('createdAt', 'desc')) :
+      query(ref, where('uid', '==', usuarioActual.uid), orderBy('createdAt', 'desc'));
+    return onSnapshot(q, (snapshot) => setPedidos(snapshot.docs.map(d => ({ id: d.id, ...d.data() }))),
+      (error) => { console.error('No se pudieron cargar los pedidos autorizados:', error); setPedidos([]); });
+  }, [usuarioActual?.uid, esAdmin]);
 
   useEffect(() => {
-    if (usuarioActual) {
-      localStorage.setItem('rossely_sesion', JSON.stringify(usuarioActual));
-    } else {
-      localStorage.removeItem('rossely_sesion');
-    }
-  }, [usuarioActual]);
+    if (!usuarioActual || !esAdmin) { setAvisosGlobales([]); return undefined; }
+    const q = query(collection(db, 'avisos_gerenciales'), orderBy('createdAt', 'desc'));
+    return onSnapshot(q, (snapshot) => setAvisosGlobales(snapshot.docs.map(d => ({ id: d.id, ...d.data() }))),
+      (error) => console.warn('Avisos no disponibles:', error));
+  }, [usuarioActual?.uid, esAdmin]);
+
+  useEffect(() => {
+    localStorage.setItem('rossely_carrito', JSON.stringify(carrito));
+  }, [carrito]);
 
   const iniciarSesion = async (email, password) => {
-    const correo = email.trim().toLowerCase();
-    if (correo === 'carmen@eshda.org.com' && password === 'prins2026') {
-      const adminData = { uid: 'admin_rossely_carmen', email: correo, nombre: 'Carmen Estrada (Dirección)', role: 'admin' };
-      setUsuarioActual(adminData);
-      setCurrentView('admin');
-      return { success: true, role: 'admin' };
-    }
-
     try {
-      const q = query(collection(db, 'usuarios'), where('email', '==', correo));
-      const querySnapshot = await getDocs(q);
-      
-      if (querySnapshot.empty) {
-        return { success: false, error: 'No existe cuenta registrada con este correo.' };
-      }
-
-      let clienteEncontrado = null;
-      querySnapshot.forEach((d) => { clienteEncontrado = { id: d.id, ...d.data() }; });
-
-      if (clienteEncontrado.password !== password) return { success: false, error: 'Contraseña incorrecta.' };
-
-      if (clienteEncontrado.puntos === undefined) clienteEncontrado.puntos = 0;
-      if (!clienteEncontrado.suscripcion) clienteEncontrado.suscripcion = { tipo: 'free' };
-
-      setUsuarioActual(clienteEncontrado);
-      setCurrentView('home');
-      return { success: true, role: 'user' };
-    } catch (error) {
-      return { success: false, error: 'Error al iniciar sesión: ' + error.message };
-    }
+      await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
+      return { success: true };
+    } catch (error) { return { success: false, error: cleanError(error) }; }
   };
 
   const registrarUsuario = async (nombre, email, password) => {
-    const correo = email.trim().toLowerCase();
+    const cleanName = nombre.trim();
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanName) return { success: false, error: 'Ingresa tu nombre.' };
+    if (password.length < 8) return { success: false, error: 'La contraseña debe tener al menos 8 caracteres.' };
     try {
-      const q = query(collection(db, 'usuarios'), where('email', '==', correo));
-      const querySnapshot = await getDocs(q);
-      if (!querySnapshot.empty) return { success: false, error: 'Este correo ya está registrado.' };
-
-      const nuevoIdUser = 'user_' + Date.now();
-      const nuevoCliente = { 
-        uid: nuevoIdUser, 
-        email: correo, 
-        password,
-        nombre, 
-        role: 'user',
-        puntos: 0,
-        suscripcion: { tipo: 'free' },
-        fechaRegistro: new Date().toISOString()
-      };
-
-      await setDoc(doc(db, 'usuarios', nuevoIdUser), nuevoCliente);
-      setUsuarioActual(nuevoCliente);
-      setCurrentView('home');
+      const credential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+      await updateProfile(credential.user, { displayName: cleanName });
+      await setDoc(doc(db, 'usuarios', credential.user.uid), {
+        uid: credential.user.uid, email: cleanEmail, nombre: cleanName,
+        role: 'user', puntos: 0, suscripcion: { tipo: 'free' },
+        fechaRegistro: serverTimestamp(), createdAt: serverTimestamp()
+      });
       return { success: true };
-    } catch (error) {
-      return { success: false, error: 'Error en registro: ' + error.message };
-    }
+    } catch (error) { return { success: false, error: cleanError(error) }; }
+  };
+
+  const recuperarContrasena = async (email) => {
+    try {
+      await sendPasswordResetEmail(auth, email.trim().toLowerCase());
+      return { success: true };
+    } catch (error) { return { success: false, error: cleanError(error) }; }
   };
 
   const cerrarSesion = async () => {
-    setUsuarioActual(null);
+    await signOut(auth);
     setCarrito([]);
-    localStorage.removeItem('rossely_sesion');
     localStorage.removeItem('rossely_carrito');
     setCurrentView('home');
   };
 
-  const agregarAlCarrito = (producto, talla = 'M') => {
-    if (!usuarioActual) {
-      alert("Debe iniciar sesión o registrarse para realizar compras en el Atelier.");
-      setCurrentView('auth');
-      return;
+  const agregarAlCarrito = (producto, talla = 'M', color = 'Rosa', cantidad = 1) => {
+    if (!usuarioActual) { setCurrentView('auth'); return { success: false, error: 'Inicia sesión para comprar.' }; }
+    if (esAdmin) return { success: false, error: 'La cuenta administrativa no puede realizar compras.' };
+    const stock = Number(producto?.tallasStock?.[talla] ?? producto?.stock ?? 0);
+    if (!Number.isInteger(cantidad) || cantidad < 1 || stock < cantidad) {
+      return { success: false, error: 'No hay existencias suficientes para esa talla.' };
     }
-    if (esAdmin) {
-      alert("Modo Supervisión: La cuenta administrativa no realiza compras directas.");
-      return;
-    }
-    const index = carrito.findIndex(i => i.id === producto.id && i.tallaSeleccionada === talla);
-    let nuevo;
-    if (index > -1) {
-      nuevo = [...carrito];
-      nuevo[index].cantidad = (nuevo[index].cantidad || 1) + 1;
-    } else {
-      nuevo = [...carrito, { ...producto, cartItemId: Date.now() + Math.random(), tallaSeleccionada: talla, cantidad: 1 }];
-    }
-    setCarrito(nuevo);
-    localStorage.setItem('rossely_carrito', JSON.stringify(nuevo));
+    const key = producto.id + ':' + talla + ':' + color;
+    setCarrito(prev => {
+      const existing = prev.find(i => i.cartItemId === key);
+      if (existing) return prev.map(i => i.cartItemId === key ? { ...i, cantidad: Math.min(stock, i.cantidad + cantidad) } : i);
+      return [...prev, {
+        ...producto, cartItemId: key, tallaSeleccionada: talla, colorSeleccionado: color,
+        cantidad, precio: Number(producto.precio) || 0
+      }];
+    });
     setCurrentView('cart');
+    return { success: true };
   };
 
-  const removerDelCarrito = (cartItemId) => {
-    const nuevo = carrito.filter(i => i.cartItemId !== cartItemId);
-    setCarrito(nuevo);
-    localStorage.setItem('rossely_carrito', JSON.stringify(nuevo));
-  };
+  const removerDelCarrito = (cartItemId) => setCarrito(prev => prev.filter(i => i.cartItemId !== cartItemId));
 
   const calcularMembresiaRuleta = (pedidosCliente) => {
-    const gasto = pedidosCliente.reduce((acc, p) => acc + (parseFloat(p.subtotal || p.total) || 0), 0);
+    const gasto = pedidosCliente.reduce((acc, p) => acc + (Number(p.subtotal || p.total) || 0), 0);
     if (gasto >= 1000) return { nivel: 'Gold VIP', ruleta: 'Ruleta de Oro (Premios Exclusivos)' };
     if (gasto >= 500) return { nivel: 'VIP', ruleta: 'Ruleta Estándar (Premios de Seda)' };
     return { nivel: 'Regular', ruleta: 'Sin Ruleta Activa' };
   };
 
-  const registrarPedidoConPuntos = async () => {
-    const totalSoles = carrito.reduce((acc, it) => acc + (parseFloat(it.precio) || 0) * (it.cantidad || 1), 0);
-    const puntosNecesarios = Math.ceil(totalSoles * 8);
-
-    if ((usuarioActual?.puntos || 0) < puntosNecesarios) {
-      alert(`Puntos insuficientes. Necesitas ${puntosNecesarios} puntos (Equivalente a S/. ${totalSoles.toFixed(2)}).`);
-      return null;
+  const registrarPedido = async (datosEnvio, comprobante = null) => {
+    if (!auth.currentUser || !carrito.length) throw new Error('Inicia sesión y añade productos antes de confirmar.');
+    let comprobanteStoragePath = null;
+    if (comprobante instanceof File) {
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(comprobante.type) || comprobante.size > 8 * 1024 * 1024) {
+        throw new Error('El comprobante debe ser JPEG, PNG o WebP y pesar como máximo 8 MB.');
+      }
+      comprobanteStoragePath = 'comprobantes/' + auth.currentUser.uid + '/' + crypto.randomUUID() + '_' + comprobante.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      await uploadBytes(ref(storage, comprobanteStoragePath), comprobante, { contentType: comprobante.type });
     }
-
-    const nuevosPuntos = usuarioActual.puntos - puntosNecesarios;
-    const nuevoPedido = {
-      cliente: {
-        nombre: usuarioActual.nombre,
-        email: usuarioActual.email,
-        telefono: usuarioActual.telefono || 'Registrado en App',
-        ciudad: 'Nuevo Chimbote / Retiro',
-        tipoEnvio: 'Pago con Divisa Puntos Premium'
-      },
-      items: carrito,
-      subtotal: totalSoles,
-      envio: 0.00,
-      total: totalSoles,
-      puntosUtilizados: puntosNecesarios,
-      estado: "Verificado",
-      despacho: "Despacho prioritario Club de Seda ROSSELY",
-      fecha: new Date().toLocaleDateString('es-PE') + ' ' + new Date().toLocaleTimeString('es-PE'),
-      createdAt: serverTimestamp()
-    };
-
-    const userRef = doc(db, 'usuarios', usuarioActual.uid || usuarioActual.id);
-    await updateDoc(userRef, { puntos: nuevosPuntos });
-    setUsuarioActual({ ...usuarioActual, puntos: nuevosPuntos });
-
-    const docRef = await addDoc(collection(db, 'pedidos'), nuevoPedido);
+    const crearPedido = httpsCallable(functions, 'createOrder');
+    const result = await crearPedido({
+      items: carrito.map(item => ({
+        productId: item.id, talla: item.tallaSeleccionada || 'M',
+        color: item.colorSeleccionado || 'Rosa', cantidad: Number(item.cantidad) || 1
+      })),
+      datosEnvio,
+      comprobanteStoragePath
+    });
     setCarrito([]);
     localStorage.removeItem('rossely_carrito');
-    return docRef.id;
+    return result.data?.orderId || null;
   };
 
-  const registrarPedido = async (datosEnvio, comprobanteBase64 = null) => {
-    const subtotal = carrito.reduce((acc, it) => acc + (parseFloat(it.precio) || 0) * (it.cantidad || 1), 0);
-    const costoEnvio = parseFloat(datosEnvio.costoEnvio || 0);
-    const total = subtotal + costoEnvio;
-
-    const nuevoPedido = {
-      cliente: datosEnvio,
-      items: carrito,
-      subtotal,
-      envio: costoEnvio,
-      total,
-      estado: "Pendiente de Verificación",
-      comprobanteImg: comprobanteBase64,
-      despacho: "Agencia Shalom desde Nuevo Chimbote",
-      fecha: new Date().toLocaleDateString('es-PE') + ' ' + new Date().toLocaleTimeString('es-PE'),
-      createdAt: serverTimestamp()
-    };
-
-    const docRef = await addDoc(collection(db, 'pedidos'), nuevoPedido);
+  const registrarPedidoConPuntos = async () => {
+    if (!auth.currentUser || !carrito.length) throw new Error('Inicia sesión y añade productos antes de continuar.');
+    const pagarConPuntos = httpsCallable(functions, 'redeemPointsForOrder');
+    const result = await pagarConPuntos({
+      items: carrito.map(item => ({
+        productId: item.id, talla: item.tallaSeleccionada || 'M',
+        color: item.colorSeleccionado || 'Rosa', cantidad: Number(item.cantidad) || 1
+      }))
+    });
     setCarrito([]);
     localStorage.removeItem('rossely_carrito');
-    return docRef.id;
+    return result.data?.orderId || null;
   };
 
   const actualizarEstadoPedido = async (id, nuevoEstado) => {
-    try {
-      await updateDoc(doc(db, 'pedidos', id), { estado: nuevoEstado });
-    } catch (e) {
-      setPedidos(prev => prev.map(p => p.id === id ? { ...p, estado: nuevoEstado } : p));
+    if (!esAdmin) throw new Error('Operación reservada al administrador.');
+    if (['Verificado', 'Pago verificado', 'Pago Verificado'].includes(nuevoEstado)) {
+      const verificar = httpsCallable(functions, 'verifyOrderPayment');
+      await verificar({ orderId: id });
+      return;
     }
+    const actualizar = httpsCallable(functions, 'updateOrderStatus');
+    await actualizar({ orderId: id, status: nuevoEstado });
   };
 
   const eliminarProducto = async (id) => {
-    try {
-      await deleteDoc(doc(db, 'productos', id));
-    } catch (e) {
-      setProductos(prev => prev.filter(p => p.id !== id));
-    }
+    if (!esAdmin) throw new Error('Operación reservada al administrador.');
+    await updateDoc(doc(db, 'productos', id), { publicado: false, archivado: true, updatedAt: serverTimestamp() });
   };
 
   const editarProducto = async (id, datosActualizados) => {
-    try {
-      await updateDoc(doc(db, 'productos', id), datosActualizados);
-      setProductos(prev => prev.map(p => p.id === id ? { ...p, ...datosActualizados } : p));
-    } catch (e) {}
+    if (!esAdmin) throw new Error('Operación reservada al administrador.');
+    await updateDoc(doc(db, 'productos', id), { ...datosActualizados, updatedAt: serverTimestamp() });
   };
 
   const agregarColeccionDinamica = async (nombreColeccion) => {
-    try {
-      const docRef = await addDoc(collection(db, 'colecciones'), { nombre: nombreColeccion, createdAt: serverTimestamp() });
-      setColecciones(prev => [...prev, { id: docRef.id, nombre: nombreColeccion }]);
-    } catch {
-      setColecciones(prev => [...prev, { id: 'col_' + Date.now(), nombre: nombreColeccion }]);
-    }
+    if (!esAdmin) throw new Error('Operación reservada al administrador.');
+    await addDoc(collection(db, 'colecciones'), { nombre: nombreColeccion, createdAt: serverTimestamp() });
   };
 
   const navegarA = useCallback((vista, producto = null) => {
+    if (vista === 'admin' && !esAdmin) { setCurrentView(usuarioActual ? 'home' : 'auth'); return; }
     if (producto) setSelectedProduct(producto);
     setCurrentView(vista);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
+  }, [esAdmin, usuarioActual]);
 
-  return (
-    <StoreContext.Provider value={{
-      productos,
-      colecciones,
-      avisosGlobales,
-      cargandoProductos,
-      carrito,
-      currentView,
-      selectedProduct,
-      pedidos,
-      usuarioActual,
-      esAdmin,
-      iniciarSesion,
-      registrarUsuario,
-      cerrarSesion,
-      agregarAlCarrito,
-      removerDelCarrito,
-      registrarPedido,
-      registrarPedidoConPuntos,
-      actualizarEstadoPedido,
-      eliminarProducto,
-      editarProducto,
-      agregarColeccionDinamica,
-      calcularMembresiaRuleta,
-      navegarA
-    }}>
-      {children}
-    </StoreContext.Provider>
-  );
+  return <StoreContext.Provider value={{
+    productos, colecciones, avisosGlobales, cargandoProductos, carrito, currentView,
+    selectedProduct, pedidos, usuarioActual, esAdmin, authCargando,
+    iniciarSesion, registrarUsuario, recuperarContrasena, cerrarSesion,
+    agregarAlCarrito, removerDelCarrito, registrarPedido, registrarPedidoConPuntos,
+    actualizarEstadoPedido, eliminarProducto, editarProducto, agregarColeccionDinamica,
+    calcularMembresiaRuleta, navegarA
+  }}>{children}</StoreContext.Provider>;
 };
 
 export const useStore = () => useContext(StoreContext);

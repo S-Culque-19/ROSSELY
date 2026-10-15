@@ -4,7 +4,9 @@
 // ============================================================================
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../context/StoreContext';
-import { db } from '../firebase';
+import { db, functions, storage } from '../firebase';
+import { httpsCallable } from 'firebase/functions';
+import { ref, getBlob } from 'firebase/storage';
 import { 
   collection, 
   addDoc, 
@@ -44,10 +46,10 @@ export default function AdminDashboardView() {
   const [costoUnitario, setCostoUnitario] = useState('');
   const [coleccionSeleccionada, setColeccionSeleccionada] = useState(colecciones[0]?.nombre || 'Colección Exclusiva');
   
-  const [unidadesS, setUnidadesS] = useState('5');
-  const [unidadesM, setUnidadesM] = useState('8');
-  const [unidadesL, setUnidadesL] = useState('5');
-  const [unidadesXL, setUnidadesXL] = useState('2');
+  const [unidadesS, setUnidadesS] = useState('0');
+  const [unidadesM, setUnidadesM] = useState('0');
+  const [unidadesL, setUnidadesL] = useState('0');
+  const [unidadesXL, setUnidadesXL] = useState('0');
   const [descripcion, setDescripcion] = useState('');
 
   const [archivosSeleccionados, setArchivosSeleccionados] = useState([]);
@@ -72,6 +74,7 @@ export default function AdminDashboardView() {
   const [editXL, setEditXL] = useState('0');
 
   const [imagenModalGrande, setImagenModalGrande] = useState(null);
+  const [comprobanteModalUrl, setComprobanteModalUrl] = useState(null);
   const [nuevaColeccionInput, setNuevaColeccionInput] = useState('');
   const [chats, setChats] = useState([]);
   const [chatSeleccionado, setChatSeleccionado] = useState(null);
@@ -151,12 +154,12 @@ export default function AdminDashboardView() {
   const handleGuardarProducto = async (e) => {
     e.preventDefault();
     if (!nombre.trim() || !precio || !costoUnitario) {
-      alert("Por favor complete nombre, precio de venta y precio de costo.");
+      mostrarToast('Completa nombre, precio de venta y precio de costo.');
       return;
     }
 
     if (archivosSeleccionados.length === 0) {
-      alert("Debe seleccionar al menos una fotografía para la prenda.");
+      mostrarToast('Selecciona al menos una fotografía para la prenda.');
       return;
     }
 
@@ -183,7 +186,11 @@ export default function AdminDashboardView() {
         nombre: nombre.trim(),
         precio: parseFloat(precio),
         costoUnitario: parseFloat(costoUnitario),
-        stock: stockTotalCalculado > 0 ? stockTotalCalculado : 15,
+        stock: stockTotalCalculado,
+        sku: 'ROS-' + crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase(),
+        publicado: true,
+        estado: 'publicado',
+        archivado: false,
         tallasStock: tallasMatriz,
         tallas: tallasActivas.length > 0 ? tallasActivas : ['S', 'M', 'L', 'XL'],
         coleccion: coleccionSeleccionada,
@@ -200,14 +207,14 @@ export default function AdminDashboardView() {
       setCostoUnitario('');
       setDescripcion('');
       setArchivosSeleccionados([]);
-      setPrevisualizaciones([]);
-      setUnidadesS('5');
-      setUnidadesM('8');
-      setUnidadesL('5');
-      setUnidadesXL('2');
+      setPrevisualizaciones(prev => { prev.forEach(url => URL.revokeObjectURL(url)); return []; });
+      setUnidadesS('0');
+      setUnidadesM('0');
+      setUnidadesL('0');
+      setUnidadesXL('0');
     } catch (err) {
       console.error("Error crítico al registrar producto:", err);
-      alert("Error al subir las imágenes o guardar en base de datos. Verifique su conexión.");
+      mostrarToast(err?.message || 'Error al subir las imágenes o guardar en base de datos.');
     } finally {
       setGuardando(false);
     }
@@ -227,7 +234,7 @@ export default function AdminDashboardView() {
       setTituloAviso('');
       setMensajeAviso('');
     } catch (e) {
-      alert("Error al enviar aviso.");
+      mostrarToast('Error al enviar el aviso gerencial.');
     }
   };
 
@@ -238,9 +245,9 @@ export default function AdminDashboardView() {
     setEditCosto(p.costoUnitario || (p.precio ? p.precio * 0.4 : ''));
     setEditColeccion(p.coleccion || colecciones[0]?.nombre || '');
     setEditDescripcion(p.descripcion || '');
-    setEditS(p.tallasStock?.S ?? '4');
-    setEditM(p.tallasStock?.M ?? '4');
-    setEditL(p.tallasStock?.L ?? '4');
+    setEditS(p.tallasStock?.S ?? '0');
+    setEditM(p.tallasStock?.M ?? '0');
+    setEditL(p.tallasStock?.L ?? '0');
     setEditXL(p.tallasStock?.XL ?? '0');
   };
 
@@ -272,28 +279,66 @@ export default function AdminDashboardView() {
     setProductoEnEdicion(null);
   };
 
-  const handleCrearColeccion = (e) => {
+  const handleCrearColeccion = async (e) => {
     e.preventDefault();
     if (!nuevaColeccionInput.trim()) return;
-    agregarColeccionDinamica(nuevaColeccionInput.trim());
-    mostrarToast(`✦ Colección "${nuevaColeccionInput.trim()}" habilitada con éxito.`);
-    setNuevaColeccionInput('');
+    try {
+      await agregarColeccionDinamica(nuevaColeccionInput.trim());
+      mostrarToast(`Colección "${nuevaColeccionInput.trim()}" creada correctamente.`);
+      setNuevaColeccionInput('');
+    } catch (err) {
+      mostrarToast(err?.message || 'No se pudo crear la colección.');
+    }
   };
 
-  const handleVerificarSuscripcion = async (subId, userId, nuevoEstado) => {
+  const handleVerificarSuscripcion = async (subId, nuevoEstado) => {
     try {
-      await updateDoc(doc(db, 'suscripciones_pendientes', subId), { estado: nuevoEstado });
       if (nuevoEstado === 'Verificado') {
-        const fechaExp = new Date();
-        fechaExp.setDate(fechaExp.getDate() + 30);
-        await updateDoc(doc(db, 'usuarios', userId), {
-          suscripcion: { tipo: 'premium', fechaExpiracion: fechaExp.toISOString() },
-          puntos: 100
+        const verificar = httpsCallable(functions, 'verifySubscriptionPayment');
+        await verificar({ subscriptionId: subId });
+        mostrarToast('Suscripción aprobada; beneficios activados por 30 días.');
+      } else {
+        await updateDoc(doc(db, 'suscripciones_pendientes', subId), {
+          estado: nuevoEstado, revisadoPor: auth.currentUser?.uid || null, revisadoAt: serverTimestamp()
         });
-        mostrarToast("✦ Suscripción aprobada y verificada.");
+        mostrarToast('Solicitud actualizada: ' + nuevoEstado + '.');
       }
-    } catch (err) {}
+    } catch (err) {
+      console.error('No se pudo verificar la suscripción:', err);
+      mostrarToast(err?.message || 'No se pudo actualizar la suscripción.');
+    }
   };
+
+  const handleEnviarRespuestaAdmin = async (e) => {
+    e.preventDefault();
+    const texto = respuestaAdmin.trim();
+    if (!texto || !chatSeleccionado?.id || !auth.currentUser) return;
+    try {
+      await addDoc(collection(db, 'chats', chatSeleccionado.id, 'mensajes'), {
+        uid: auth.currentUser.uid, remitente: 'admin', texto, timestamp: serverTimestamp()
+      });
+      await updateDoc(doc(db, 'chats', chatSeleccionado.id), {
+        ultimoMensaje: texto, ultimaFecha: serverTimestamp(),
+        noLeidoPorAdmin: false, noLeidoPorCliente: true
+      });
+      setRespuestaAdmin('');
+    } catch (err) {
+      console.error('No se pudo enviar la respuesta:', err);
+      mostrarToast('No se pudo enviar el mensaje. Verifica la conexión y los permisos.');
+    }
+  };
+
+  const abrirComprobante = async (path) => {
+    if (!path) return mostrarToast('Esta solicitud no tiene un comprobante adjunto.');
+    try {
+      const blob = await getBlob(ref(storage, path));
+      setComprobanteModalUrl(URL.createObjectURL(blob));
+    } catch (err) {
+      mostrarToast('No se pudo abrir el comprobante. Verifica los permisos y CORS de Storage.');
+    }
+  };
+
+  useEffect(() => () => { if (comprobanteModalUrl) URL.revokeObjectURL(comprobanteModalUrl); }, [comprobanteModalUrl]);
 
   const ahora = new Date();
   const pedidosFiltrados = pedidos.filter(p => {
@@ -304,12 +349,18 @@ export default function AdminDashboardView() {
     return difDias <= diasFiltro;
   });
 
-  const ingresosTotales = pedidosFiltrados.reduce((acc, p) => acc + (parseFloat(p.subtotal || p.total) || 0), 0);
-  const costoTotalMercaderia = pedidosFiltrados.reduce((acc, p) => {
-    return acc + (p.items || []).reduce((cAcc, item) => cAcc + ((item.costoUnitario || item.precio * 0.4) * (item.cantidad || 1)), 0);
-  }, 0);
+  const pedidosPagados = pedidosFiltrados.filter(p =>
+    p.pagoEstado === 'Verificado' || p.pagoMetodo === 'puntos' || p.estado === 'Verificado' ||
+    p.estado === 'Pagado con puntos' || ['En Confección/Empaque', 'Dejado en Shalom Chimbote', 'En Tránsito a Destino', 'Entregado'].includes(p.estado)
+  );
+  const ingresosTotales = pedidosPagados.reduce((acc, p) => acc + (Number(p.subtotal || p.total) || 0), 0);
+  const costoTotalMercaderia = pedidosPagados.reduce((acc, p) => acc + (p.items || []).reduce((cAcc, item) => {
+    const producto = productos.find(pr => pr.id === item.productId) || productos.find(pr => pr.nombre === (item.nombre || item.name));
+    const costo = Number(producto?.costoUnitario);
+    return cAcc + (Number.isFinite(costo) ? costo : 0) * (Number(item.cantidad) || 1);
+  }, 0), 0);
   const gananciaNetaReal = ingresosTotales - costoTotalMercaderia;
-  const unidadesVendidas = pedidosFiltrados.reduce((acc, p) => acc + (p.items || []).reduce((iAcc, it) => iAcc + (it.cantidad || 1), 0), 0);
+  const unidadesVendidas = pedidosPagados.reduce((acc, p) => acc + (p.items || []).reduce((iAcc, it) => iAcc + (it.cantidad || 1), 0), 0);
 
   const exportarBalanceExcelJS = async () => {
     const workbook = new ExcelJS.Workbook();
@@ -317,7 +368,7 @@ export default function AdminDashboardView() {
     const worksheet = workbook.addWorksheet('Balance Financiero');
     worksheet.views = [{ showGridLines: true }];
 
-    worksheet.mergeCells('A1:K1');
+    worksheet.mergeCells('A1:L1');
     const titleCell = worksheet.getCell('A1');
     titleCell.value = 'ATELIER ROSSELY — BALANCE FINANCIERO Y CONTROL DE OPERACIONES';
     titleCell.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -325,7 +376,7 @@ export default function AdminDashboardView() {
     titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
     worksheet.getRow(1).height = 40;
 
-    worksheet.mergeCells('A2:K2');
+    worksheet.mergeCells('A2:L2');
     const subCell = worksheet.getCell('A2');
     subCell.value = `Período Auditado: Últimos ${diasFiltro === 9999 ? 'Histórico Total' : diasFiltro + ' Días'} | Emisión: ${new Date().toLocaleString('es-PE')} | Sede: Taller Nuevo Chimbote`;
     subCell.font = { name: 'Arial', size: 9.5, italic: true, color: { argb: 'FF334155' } };
@@ -333,7 +384,7 @@ export default function AdminDashboardView() {
     subCell.alignment = { horizontal: 'center', vertical: 'middle' };
     worksheet.getRow(2).height = 22;
 
-    const headers = ['N° PEDIDO', 'FECHA / HORA', 'CLIENTE', 'CORREO', 'DESTINO / AGENCIA', 'DETALLE DE PRENDAS', 'CANT.', 'TOTAL VENTA (S/)', 'COSTO TALLER (S/)', 'UTILIDAD NETA (S/)', 'ESTADO'];
+    const headers = ['N° PEDIDO', 'FECHA / HORA', 'CLIENTE', 'CORREO', 'DESTINO / AGENCIA', 'DETALLE DE PRENDAS', 'CANT.', 'TOTAL PEDIDO (S/)', 'COSTO ACTUAL ESTIMADO (S/)', 'MARGEN ESTIMADO (S/)', 'ESTADO DE PEDIDO', 'ESTADO DE PAGO'];
     const headerRow = worksheet.getRow(4);
     headerRow.values = headers;
     headerRow.height = 28;
@@ -347,11 +398,12 @@ export default function AdminDashboardView() {
     pedidosFiltrados.forEach(p => {
       const fechaTxt = p.createdAt?.toDate ? p.createdAt.toDate().toLocaleString('es-PE') : 'Reciente';
       (p.items || []).forEach(item => {
-        const pV = parseFloat(item.precio || 0);
-        const cU = item.costoUnitario || pV * 0.4;
+        const pV = parseFloat(item.precioUnitario ?? item.precio ?? 0);
+        const productoActual = productos.find(pr => pr.id === item.productId) || productos.find(pr => pr.nombre === (item.nombre || item.name));
+        const cU = Number(productoActual?.costoUnitario) || 0;
         const q = item.cantidad || 1;
         const row = worksheet.getRow(rowIndex);
-        row.values = [p.id.slice(0, 8), fechaTxt, p.cliente?.nombre || 'Cliente', p.cliente?.email || 'Sin correo', p.cliente?.ciudad || 'Chimbote', `${item.name || item.nombre} (Talla ${item.tallaSeleccionada || 'M'})`, q, pV * q, cU * q, { formula: `H${rowIndex}-I${rowIndex}` }, p.estado || 'Pendiente'];
+        row.values = [p.id.slice(0, 8), fechaTxt, p.cliente?.nombre || 'Cliente', p.cliente?.email || 'Sin correo', p.cliente?.ciudad || p.cliente?.distrito || p.cliente?.direccion || 'Sin destino', `${item.nombre || item.name} (Talla ${item.talla || item.tallaSeleccionada || 'M'})`, q, pV * q, cU * q, { formula: `H${rowIndex}-I${rowIndex}` }, p.estado || 'Pendiente', p.pagoEstado || (p.estado === 'Verificado' || p.estado === 'Entregado' ? 'Verificado' : 'Pendiente')];
         row.height = 20;
         row.eachCell((cell, colNumber) => {
           cell.font = { name: 'Arial', size: 9.5 };
@@ -462,7 +514,9 @@ export default function AdminDashboardView() {
               <div>
                 <label className="block text-[11px] font-bold text-stone-700 mb-1">Colección / Edición</label>
                 <select value={coleccionSeleccionada} onChange={e => setColeccionSeleccionada(e.target.value)} className="w-full bg-[#FFFBFB] border border-[#F8D7E0] rounded-xl px-3 py-2 text-xs outline-none font-medium">
-                  {colecciones.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
+                  <option value="Colección Exclusiva">Colección Exclusiva</option>
+                <option value="Colección Exclusiva">Colección Exclusiva</option>
+                {colecciones.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
                 </select>
               </div>
 
@@ -532,12 +586,22 @@ export default function AdminDashboardView() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
+                    <button onClick={() => editarProducto(p.id, { publicado: p.publicado !== true, estado: p.publicado === true ? 'borrador' : 'publicado', archivado: false }).then(() => mostrarToast(p.publicado === true ? 'Prenda despublicada.' : 'Prenda publicada en el catálogo.')).catch(err => mostrarToast(err?.message || 'No se pudo cambiar la publicación.'))} className="px-2 py-1 text-[10px] font-bold text-[#701A3B] hover:bg-pink-50 rounded-lg cursor-pointer" title="Publicar o despublicar">{p.publicado === true ? 'Despublicar' : 'Publicar'}</button>
                     <button onClick={() => iniciarEdicion(p)} className="p-2 text-[#701A3B] hover:bg-pink-50 rounded-lg cursor-pointer" title="Editar Prenda"><Edit3 className="w-4 h-4" /></button>
-                    <button onClick={() => eliminarProducto(p.id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg cursor-pointer" title="Eliminar"><Trash2 className="w-4 h-4" /></button>
+                    <button onClick={() => eliminarProducto(p.id).then(() => mostrarToast("Prenda archivada correctamente.")).catch(err => mostrarToast(err?.message || "No se pudo archivar la prenda."))} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg cursor-pointer" title="Archivar"><Trash2 className="w-4 h-4" /></button>
                   </div>
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {comprobanteModalUrl && (
+        <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Comprobante de pago">
+          <div className="relative bg-white rounded-2xl p-4 max-w-3xl max-h-[90vh] w-full flex flex-col items-center gap-3">
+            <button type="button" onClick={() => setComprobanteModalUrl(null)} className="self-end bg-[#701A3B] text-white rounded-full px-4 py-2 text-xs font-bold">Cerrar comprobante</button>
+            <img src={comprobanteModalUrl} alt="Comprobante privado de pago" className="max-h-[75vh] max-w-full object-contain rounded-xl" />
           </div>
         </div>
       )}
@@ -622,15 +686,16 @@ export default function AdminDashboardView() {
               <div key={p.id} className="p-4 rounded-2xl border border-[#F8D7E0] bg-[#FFFBFB] flex justify-between items-center text-xs">
                 <div>
                   <p className="font-bold text-[#701A3B]">Pedido #{p.id.slice(0, 8)} — {p.cliente?.nombre}</p>
-                  <p className="text-stone-500">Destino: {p.cliente?.ciudad} | Total: S/. {parseFloat(p.total).toFixed(2)}</p>
+                  <p className="text-stone-500">Destino: {p.cliente?.ciudad || p.cliente?.distrito || p.cliente?.direccion || "Sin destino"} | Total: S/. {parseFloat(p.total || 0).toFixed(2)}</p>
+                  {p.comprobanteStoragePath && <button type="button" onClick={() => abrirComprobante(p.comprobanteStoragePath)} className="mt-1 text-[#701A3B] underline font-bold">Ver comprobante de pago</button>}
                 </div>
                 <select
                   value={p.estado}
-                  onChange={(e) => actualizarEstadoPedido(p.id, e.target.value)}
+                  onChange={(e) => actualizarEstadoPedido(p.id, e.target.value).catch(err => mostrarToast(err?.message || 'No se pudo cambiar el estado del pedido.'))}
                   className={`font-bold px-3 py-1.5 rounded-xl border ${p.estado === 'Entregado' ? 'bg-emerald-100 text-emerald-800' : 'bg-white'}`}
                 >
                   <option value="Pendiente de Verificación">Pendiente de Verificación</option>
-                  <option value="Pago Verificado">Pago Verificado</option>
+                  <option value="Verificado">Pago Verificado</option>
                   <option value="En Confección/Empaque">En Confección/Empaque</option>
                   <option value="Dejado en Shalom Chimbote">Dejado en Shalom Chimbote</option>
                   <option value="En Tránsito a Destino">En Tránsito a Destino</option>
@@ -660,7 +725,7 @@ export default function AdminDashboardView() {
           <div className="grid grid-cols-4 gap-4 text-xs">
             <div className="p-4 bg-stone-50 rounded-xl">Ingresos: <b>S/. {ingresosTotales.toFixed(2)}</b></div>
             <div className="p-4 bg-stone-50 rounded-xl">Costos Taller: <b>S/. {costoTotalMercaderia.toFixed(2)}</b></div>
-            <div className="p-4 bg-pink-50 rounded-xl text-[#701A3B]">Utilidad Neta: <b>S/. {gananciaNetaReal.toFixed(2)}</b></div>
+            <div className="p-4 bg-pink-50 rounded-xl text-[#701A3B]">Margen estimado (sin gastos): <b>S/. {gananciaNetaReal.toFixed(2)}</b></div>
             <div className="p-4 bg-stone-50 rounded-xl">Unidades: <b>{unidadesVendidas}</b></div>
           </div>
         </div>
@@ -727,13 +792,14 @@ export default function AdminDashboardView() {
               <div>
                 <p className="font-bold text-[#701A3B]">{sub.nombre} ({sub.email})</p>
                 <p className="text-stone-600">Nº Operación Yape: <strong className="font-mono">{sub.numeroOperacion}</strong></p>
+                <button type="button" onClick={() => abrirComprobante(sub.comprobantePath)} className="mt-2 text-[#701A3B] underline font-bold">Ver comprobante privado</button>
               </div>
               <div className="flex items-center gap-3">
                 <span className={`px-3 py-1 rounded-full font-bold text-[10px] ${sub.estado === 'Verificado' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
                   {sub.estado === 'Verificado' ? '✓ Verificado (Check Verde)' : '✕ Por Verificar (X Roja)'}
                 </span>
-                <button onClick={() => handleVerificarSuscripcion(sub.id, sub.uid, sub.estado === 'Verificado' ? 'Por Verificar' : 'Verificado')} className="bg-[#701A3B] text-white px-4 py-2 rounded-xl font-bold uppercase cursor-pointer">
-                  {sub.estado === 'Verificado' ? 'Marcar Pendiente' : 'Aprobar y Verificar'}
+                <button onClick={() => handleVerificarSuscripcion(sub.id, sub.estado === 'Por Verificar' ? 'Verificado' : 'Rechazado')} disabled={sub.estado !== 'Por Verificar'} className="bg-[#701A3B] disabled:opacity-50 text-white px-4 py-2 rounded-xl font-bold uppercase cursor-pointer">
+                  {sub.estado === 'Verificado' ? 'Aprobada' : sub.estado === 'Rechazado' ? 'Rechazada' : 'Aprobar y Verificar'}
                 </button>
               </div>
             </div>

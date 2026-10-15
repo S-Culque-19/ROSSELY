@@ -24,16 +24,23 @@ import {
 } from 'lucide-react';
 
 export default function SupportChatbot() {
-  const { esAdmin, usuarioActual } = useStore();
-
-  // El administrador jamás ve la burbuja de cliente
-  if (esAdmin) return null;
+  const { esAdmin, usuarioActual, navegarA } = useStore();
 
   const [abierto, setAbierto] = useState(false);
   const [modoEnVivo, setModoEnVivo] = useState(false);
-  const [chatId, setChatId] = useState(() => {
-    return localStorage.getItem('rossely_chat_id') || null;
-  });
+  const [chatId, setChatId] = useState(null);
+
+  useEffect(() => {
+    if (usuarioActual?.uid && !esAdmin) {
+      setChatId(usuarioActual.uid);
+      localStorage.setItem('rossely_chat_id', usuarioActual.uid);
+    } else {
+      setChatId(null);
+      localStorage.removeItem('rossely_chat_id');
+      setModoEnVivo(false);
+      setMensajes([]);
+    }
+  }, [usuarioActual?.uid, esAdmin]);
 
   const [mensajes, setMensajes] = useState([]);
   const [nuevoMensaje, setNuevoMensaje] = useState('');
@@ -77,20 +84,18 @@ export default function SupportChatbot() {
 
   // Iniciar Conversación con Asesor Humano en Firestore
   const activarAsesorHumano = async () => {
+    if (!usuarioActual?.uid) { navegarA('auth'); setAbierto(false); return; }
     setModoEnVivo(true);
-    let idActual = chatId;
-
-    if (!idActual) {
-      idActual = usuarioActual?.uid || `guest_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-      setChatId(idActual);
-      localStorage.setItem('rossely_chat_id', idActual);
-    }
+    const idActual = usuarioActual.uid;
+    setChatId(idActual);
+    localStorage.setItem('rossely_chat_id', idActual);
 
     const clienteNombre = usuarioActual?.nombre || 'Clienta Visitante';
     const clienteEmail = usuarioActual?.email || 'Sin registrar';
 
     const chatDocRef = doc(db, 'chats', idActual);
     await setDoc(chatDocRef, {
+      uid: idActual,
       clienteId: idActual,
       clienteNombre,
       clienteEmail,
@@ -103,6 +108,7 @@ export default function SupportChatbot() {
     // Mensaje inicial del sistema si no hay mensajes previos
     const colMensajes = collection(db, 'chats', idActual, 'mensajes');
     await addDoc(colMensajes, {
+      uid: idActual,
       remitente: 'sistema',
       texto: `¡Hola ${clienteNombre}! Una asesora de nuestro taller en Nuevo Chimbote se conectará en unos momentos para ayudarte con tu pedido.`,
       timestamp: serverTimestamp()
@@ -111,7 +117,8 @@ export default function SupportChatbot() {
 
   const enviarMensajeCliente = async (e) => {
     e.preventDefault();
-    if (!nuevoMensaje.trim() || !chatId) return;
+    if (!usuarioActual?.uid) { navegarA('auth'); return; }
+    if (!nuevoMensaje.trim() || !chatId || chatId !== usuarioActual.uid) return;
 
     const txt = nuevoMensaje.trim();
     setNuevoMensaje('');
@@ -119,6 +126,7 @@ export default function SupportChatbot() {
 
     try {
       await addDoc(collection(db, 'chats', chatId, 'mensajes'), {
+        uid: usuarioActual.uid,
         remitente: 'cliente',
         texto: txt,
         timestamp: serverTimestamp()
@@ -127,8 +135,7 @@ export default function SupportChatbot() {
       await setDoc(doc(db, 'chats', chatId), {
         ultimoMensaje: txt,
         ultimaFecha: serverTimestamp(),
-        noLeidoPorAdmin: true,
-        estado: 'activo'
+        noLeidoPorAdmin: true
       }, { merge: true });
     } catch (err) {
       console.error("Error al enviar mensaje:", err);
@@ -136,6 +143,8 @@ export default function SupportChatbot() {
       setCargandoEnvio(false);
     }
   };
+
+  if (esAdmin) return null;
 
   return (
     <>

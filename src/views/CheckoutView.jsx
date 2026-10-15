@@ -2,33 +2,6 @@ import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
 import { ShieldCheck, QrCode, UploadCloud, CheckCircle2, Loader2, ArrowLeft, Truck, Package } from 'lucide-react';
 
-const optimizarCapturaCanvas = (file) => {
-  return new Promise((resolve, reject) => {
-    if (!file) return reject(new Error("Archivo inválido"));
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (e) => {
-      const img = new Image();
-      img.src = e.target.result;
-      img.onload = () => {
-        let w = img.width;
-        let h = img.height;
-        if (w > 900) {
-          h = Math.round((h * 900) / w);
-          w = 900;
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', 0.7));
-      };
-      img.onerror = reject;
-    };
-    reader.onerror = reject;
-  });
-};
 
 export default function CheckoutView() {
   const { carrito, registrarPedido, navegarA, usuarioActual } = useStore();
@@ -45,6 +18,7 @@ export default function CheckoutView() {
   
   const [procesando, setProcesando] = useState(false);
   const [pedidoCompletadoId, setPedidoCompletadoId] = useState(null);
+  const [errorCompra, setErrorCompra] = useState('');
 
   // Cálculo de Envíos Shalom
   const subtotal = carrito.reduce((acc, it) => acc + (parseFloat(it.precio || 0) * (it.cantidad || 1)), 0);
@@ -60,6 +34,11 @@ export default function CheckoutView() {
   const handleSeleccionarComprobante = (e) => {
     const f = e.target.files[0];
     if (f) {
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(f.type) || f.size > 8 * 1024 * 1024) {
+        setErrorCompra('Adjunta una imagen JPEG, PNG o WebP de máximo 8 MB.');
+        e.target.value = '';
+        return;
+      }
       setComprobanteFile(f);
       setPreviewUrl(URL.createObjectURL(f));
     }
@@ -67,29 +46,31 @@ export default function CheckoutView() {
 
   const handleConfirmarCompra = async (e) => {
     e.preventDefault();
-    if (carrito.length === 0) return alert("Tu bolsa de compras está vacía.");
-    if (!dni || dni.length < 8) return alert("Por favor ingresa un número de DNI válido para el recojo en Shalom.");
-    if (!comprobanteFile) return alert("Por favor adjunta la captura del comprobante de transferencia o QR.");
+    setErrorCompra('');
+    if (carrito.length === 0) return setErrorCompra('Tu bolsa de compras está vacía.');
+    if (!/^\d{8,9}$/.test(dni)) return setErrorCompra('Por favor ingresa un DNI válido de 8 o 9 dígitos para el recojo en Shalom.');
+    if (!telefono.trim()) return setErrorCompra('Ingresa un teléfono de contacto válido.');
+    if (!comprobanteFile) return setErrorCompra('Adjunta la captura del comprobante de transferencia o QR.');
 
     setProcesando(true);
     try {
-      const base64Comprobante = await optimizarCapturaCanvas(comprobanteFile);
-
       const idGenerado = await registrarPedido({
         nombre,
         dni,
         telefono,
         ciudad,
+        distrito: ciudad,
+        direccion: agenciaShalom,
         agenciaShalom,
         tipoEnvio,
         costoEnvio,
         email: usuarioActual?.email || 'cliente@rossely.pe'
-      }, base64Comprobante);
+      }, comprobanteFile);
 
       setPedidoCompletadoId(idGenerado);
     } catch (err) {
       console.error(err);
-      alert("Hubo un problema procesando el comprobante.");
+      setErrorCompra(err?.message || 'Hubo un problema procesando el comprobante.');
     } finally {
       setProcesando(false);
     }
@@ -128,6 +109,7 @@ export default function CheckoutView() {
         
         {/* Formulario Logístico Shalom */}
         <form onSubmit={handleConfirmarCompra} className="lg:col-span-7 bg-white p-8 rounded-3xl border border-[#FCE4EC] shadow-xs space-y-5">
+          {errorCompra && <div role="alert" className="p-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-800 text-xs">{errorCompra}</div>}
           <div className="border-b border-stone-100 pb-3">
             <h2 className="font-serif text-2xl font-bold text-stone-900">Datos para Despacho Shalom</h2>
             <p className="text-[11px] text-stone-500 font-light mt-0.5">
