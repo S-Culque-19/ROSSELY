@@ -60,6 +60,11 @@ export default function CheckoutView() {
   const handleSeleccionarComprobante = (e) => {
     const f = e.target.files[0];
     if (f) {
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(f.type) || f.size > 8 * 1024 * 1024) {
+        alert('Adjunta una imagen JPEG, PNG o WebP de máximo 8 MB.');
+        e.target.value = '';
+        return;
+      }
       setComprobanteFile(f);
       setPreviewUrl(URL.createObjectURL(f));
     }
@@ -68,13 +73,12 @@ export default function CheckoutView() {
   const handleConfirmarCompra = async (e) => {
     e.preventDefault();
     if (carrito.length === 0) return alert("Tu bolsa de compras está vacía.");
-    if (!dni || dni.length < 8) return alert("Por favor ingresa un número de DNI válido para el recojo en Shalom.");
+    if (!/^\\d{8,9}$/.test(dni)) return alert("Por favor ingresa un DNI válido de 8 o 9 dígitos para el recojo en Shalom.");
+    if (!telefono.trim()) return alert('Ingresa un teléfono de contacto válido.');
     if (!comprobanteFile) return alert("Por favor adjunta la captura del comprobante de transferencia o QR.");
 
     setProcesando(true);
     try {
-      const base64Comprobante = await optimizarCapturaCanvas(comprobanteFile);
-
       const idGenerado = await registrarPedido({
         nombre,
         dni,
@@ -84,7 +88,7 @@ export default function CheckoutView() {
         tipoEnvio,
         costoEnvio,
         email: usuarioActual?.email || 'cliente@rossely.pe'
-      }, base64Comprobante);
+      }, comprobanteFile);
 
       setPedidoCompletadoId(idGenerado);
     } catch (err) {
