@@ -183,7 +183,11 @@ export default function AdminDashboardView() {
         nombre: nombre.trim(),
         precio: parseFloat(precio),
         costoUnitario: parseFloat(costoUnitario),
-        stock: stockTotalCalculado > 0 ? stockTotalCalculado : 15,
+        stock: stockTotalCalculado,
+        sku: 'ROS-' + crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase(),
+        publicado: true,
+        estado: 'publicado',
+        archivado: false,
         tallasStock: tallasMatriz,
         tallas: tallasActivas.length > 0 ? tallasActivas : ['S', 'M', 'L', 'XL'],
         coleccion: coleccionSeleccionada,
@@ -200,7 +204,7 @@ export default function AdminDashboardView() {
       setCostoUnitario('');
       setDescripcion('');
       setArchivosSeleccionados([]);
-      setPrevisualizaciones([]);
+      setPrevisualizaciones(prev => { prev.forEach(url => URL.revokeObjectURL(url)); return []; });
       setUnidadesS('5');
       setUnidadesM('8');
       setUnidadesL('5');
