@@ -235,7 +235,8 @@ export const StoreProvider = ({ children }) => {
       await verificar({ orderId: id });
       return;
     }
-    await updateDoc(doc(db, 'pedidos', id), { estado: nuevoEstado, updatedAt: serverTimestamp() });
+    const actualizar = httpsCallable(functions, 'updateOrderStatus');
+    await actualizar({ orderId: id, status: nuevoEstado });
   };
 
   const eliminarProducto = async (id) => {
