@@ -344,12 +344,18 @@ export default function AdminDashboardView() {
     return difDias <= diasFiltro;
   });
 
-  const ingresosTotales = pedidosFiltrados.reduce((acc, p) => acc + (parseFloat(p.subtotal || p.total) || 0), 0);
-  const costoTotalMercaderia = pedidosFiltrados.reduce((acc, p) => {
-    return acc + (p.items || []).reduce((cAcc, item) => cAcc + ((item.costoUnitario || item.precio * 0.4) * (item.cantidad || 1)), 0);
-  }, 0);
+  const pedidosPagados = pedidosFiltrados.filter(p =>
+    p.pagoEstado === 'Verificado' || p.pagoMetodo === 'puntos' || p.estado === 'Verificado' ||
+    p.estado === 'Pagado con puntos' || ['En Confección/Empaque', 'Dejado en Shalom Chimbote', 'En Tránsito a Destino', 'Entregado'].includes(p.estado)
+  );
+  const ingresosTotales = pedidosPagados.reduce((acc, p) => acc + (Number(p.subtotal || p.total) || 0), 0);
+  const costoTotalMercaderia = pedidosPagados.reduce((acc, p) => acc + (p.items || []).reduce((cAcc, item) => {
+    const producto = productos.find(pr => pr.id === item.productId) || productos.find(pr => pr.nombre === (item.nombre || item.name));
+    const costo = Number(producto?.costoUnitario);
+    return cAcc + (Number.isFinite(costo) ? costo : 0) * (Number(item.cantidad) || 1);
+  }, 0), 0);
   const gananciaNetaReal = ingresosTotales - costoTotalMercaderia;
-  const unidadesVendidas = pedidosFiltrados.reduce((acc, p) => acc + (p.items || []).reduce((iAcc, it) => iAcc + (it.cantidad || 1), 0), 0);
+  const unidadesVendidas = pedidosPagados.reduce((acc, p) => acc + (p.items || []).reduce((iAcc, it) => iAcc + (it.cantidad || 1), 0), 0);
 
   const exportarBalanceExcelJS = async () => {
     const workbook = new ExcelJS.Workbook();
@@ -357,7 +363,7 @@ export default function AdminDashboardView() {
     const worksheet = workbook.addWorksheet('Balance Financiero');
     worksheet.views = [{ showGridLines: true }];
 
-    worksheet.mergeCells('A1:K1');
+    worksheet.mergeCells('A1:L1');
     const titleCell = worksheet.getCell('A1');
     titleCell.value = 'ATELIER ROSSELY — BALANCE FINANCIERO Y CONTROL DE OPERACIONES';
     titleCell.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -365,7 +371,7 @@ export default function AdminDashboardView() {
     titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
     worksheet.getRow(1).height = 40;
 
-    worksheet.mergeCells('A2:K2');
+    worksheet.mergeCells('A2:L2');
     const subCell = worksheet.getCell('A2');
     subCell.value = `Período Auditado: Últimos ${diasFiltro === 9999 ? 'Histórico Total' : diasFiltro + ' Días'} | Emisión: ${new Date().toLocaleString('es-PE')} | Sede: Taller Nuevo Chimbote`;
     subCell.font = { name: 'Arial', size: 9.5, italic: true, color: { argb: 'FF334155' } };
@@ -373,7 +379,7 @@ export default function AdminDashboardView() {
     subCell.alignment = { horizontal: 'center', vertical: 'middle' };
     worksheet.getRow(2).height = 22;
 
-    const headers = ['N° PEDIDO', 'FECHA / HORA', 'CLIENTE', 'CORREO', 'DESTINO / AGENCIA', 'DETALLE DE PRENDAS', 'CANT.', 'TOTAL VENTA (S/)', 'COSTO TALLER (S/)', 'UTILIDAD NETA (S/)', 'ESTADO'];
+    const headers = ['N° PEDIDO', 'FECHA / HORA', 'CLIENTE', 'CORREO', 'DESTINO / AGENCIA', 'DETALLE DE PRENDAS', 'CANT.', 'TOTAL PEDIDO (S/)', 'COSTO ACTUAL ESTIMADO (S/)', 'MARGEN ESTIMADO (S/)', 'ESTADO DE PEDIDO', 'ESTADO DE PAGO'];
     const headerRow = worksheet.getRow(4);
     headerRow.values = headers;
     headerRow.height = 28;
@@ -388,10 +394,11 @@ export default function AdminDashboardView() {
       const fechaTxt = p.createdAt?.toDate ? p.createdAt.toDate().toLocaleString('es-PE') : 'Reciente';
       (p.items || []).forEach(item => {
         const pV = parseFloat(item.precioUnitario ?? item.precio ?? 0);
-        const cU = item.costoUnitario || (item.costoUnitario === 0 ? 0 : pV * 0.4);
+        const productoActual = productos.find(pr => pr.id === item.productId) || productos.find(pr => pr.nombre === (item.nombre || item.name));
+        const cU = Number(productoActual?.costoUnitario) || 0;
         const q = item.cantidad || 1;
         const row = worksheet.getRow(rowIndex);
-        row.values = [p.id.slice(0, 8), fechaTxt, p.cliente?.nombre || 'Cliente', p.cliente?.email || 'Sin correo', p.cliente?.ciudad || p.cliente?.distrito || p.cliente?.direccion || 'Sin destino', `${item.nombre || item.name} (Talla ${item.talla || item.tallaSeleccionada || 'M'})`, q, pV * q, cU * q, { formula: `H${rowIndex}-I${rowIndex}` }, p.estado || 'Pendiente'];
+        row.values = [p.id.slice(0, 8), fechaTxt, p.cliente?.nombre || 'Cliente', p.cliente?.email || 'Sin correo', p.cliente?.ciudad || p.cliente?.distrito || p.cliente?.direccion || 'Sin destino', `${item.nombre || item.name} (Talla ${item.talla || item.tallaSeleccionada || 'M'})`, q, pV * q, cU * q, { formula: `H${rowIndex}-I${rowIndex}` }, p.estado || 'Pendiente', p.pagoEstado || (p.estado === 'Verificado' || p.estado === 'Entregado' ? 'Verificado' : 'Pendiente')];
         row.height = 20;
         row.eachCell((cell, colNumber) => {
           cell.font = { name: 'Arial', size: 9.5 };
@@ -702,7 +709,7 @@ export default function AdminDashboardView() {
           <div className="grid grid-cols-4 gap-4 text-xs">
             <div className="p-4 bg-stone-50 rounded-xl">Ingresos: <b>S/. {ingresosTotales.toFixed(2)}</b></div>
             <div className="p-4 bg-stone-50 rounded-xl">Costos Taller: <b>S/. {costoTotalMercaderia.toFixed(2)}</b></div>
-            <div className="p-4 bg-pink-50 rounded-xl text-[#701A3B]">Utilidad Neta: <b>S/. {gananciaNetaReal.toFixed(2)}</b></div>
+            <div className="p-4 bg-pink-50 rounded-xl text-[#701A3B]">Margen estimado (sin gastos): <b>S/. {gananciaNetaReal.toFixed(2)}</b></div>
             <div className="p-4 bg-stone-50 rounded-xl">Unidades: <b>{unidadesVendidas}</b></div>
           </div>
         </div>
