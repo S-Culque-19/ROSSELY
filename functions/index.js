@@ -81,7 +81,7 @@ exports.createOrder = onCall(async (request) => {
       const mapKey = item.productId + ':' + stockField + ':' + stockKey;
       const already = decrements.get(mapKey)?.cantidad || 0;
       if (available - already < item.cantidad) throw new HttpsError('failed-precondition', 'Stock insuficiente para ' + (p.nombre || 'una prenda') + ', talla ' + item.talla + '.');
-      decrements.set(mapKey, { ref: snap.ref, stockField, stockKey, cantidad: already + item.cantidad, available, p });
+      decrements.set(mapKey, { productId: snap.id, ref: snap.ref, stockField, stockKey, cantidad: already + item.cantidad, available, p });
       const lineTotal = Math.round(price * item.cantidad * 100) / 100;
       subtotal += lineTotal;
       lines.push({
@@ -90,10 +90,17 @@ exports.createOrder = onCall(async (request) => {
         imagen: String(p.img || p.imagen || ''), subtotal: lineTotal
       });
     }
+    const byProduct = new Map();
     for (const change of decrements.values()) {
-      tx.update(change.ref, {
-        [change.stockField + '.' + change.stockKey]: change.available - change.cantidad,
-        stock: Math.max(0, Number(change.p.stock || 0) - change.cantidad),
+      if (!byProduct.has(change.productId)) byProduct.set(change.productId, { ref: change.ref, p: change.p, total: 0, updates: {} });
+      const group = byProduct.get(change.productId);
+      group.total += change.cantidad;
+      group.updates[change.stockField + '.' + change.stockKey] = change.available - change.cantidad;
+    }
+    for (const group of byProduct.values()) {
+      tx.update(group.ref, {
+        ...group.updates,
+        stock: Math.max(0, Number(group.p.stock || 0) - group.total),
         updatedAt: FieldValue.serverTimestamp()
       });
     }
@@ -141,16 +148,23 @@ exports.redeemPointsForOrder = onCall(async (request) => {
       const mapKey = item.productId + ':' + key;
       const already = decrements.get(mapKey)?.cantidad || 0;
       if (!Number.isFinite(price) || available - already < item.cantidad) throw new HttpsError('failed-precondition', 'Stock insuficiente.');
-      decrements.set(mapKey, { ref: snap.ref, cantidad: already + item.cantidad, available, p });
+      decrements.set(mapKey, { productId: snap.id, ref: snap.ref, key, cantidad: already + item.cantidad, available, p });
       const subtotal = Math.round(price * item.cantidad * 100) / 100;
       total += subtotal;
       lines.push({ productId: snap.id, nombre: p.nombre || 'Prenda', precioUnitario: price, cantidad: item.cantidad, talla: item.talla, color: item.color, subtotal });
     }
     const points = Math.ceil(total * 8);
     if (balance < points) throw new HttpsError('failed-precondition', 'No tienes puntos suficientes.');
-    for (const c of decrements.values()) tx.update(c.ref, {
-      ['tallasStock.' + Object.keys(c.p.tallasStock || {}).find(k => c.p.tallasStock[k] === c.available)]: c.available - c.cantidad,
-      stock: Math.max(0, Number(c.p.stock || 0) - c.cantidad), updatedAt: FieldValue.serverTimestamp()
+    const byProduct = new Map();
+    for (const c of decrements.values()) {
+      if (!byProduct.has(c.productId)) byProduct.set(c.productId, { ref: c.ref, p: c.p, total: 0, updates: {} });
+      const group = byProduct.get(c.productId);
+      group.total += c.cantidad;
+      group.updates['tallasStock.' + c.key] = c.available - c.cantidad;
+    }
+    for (const group of byProduct.values()) tx.update(group.ref, {
+      ...group.updates, stock: Math.max(0, Number(group.p.stock || 0) - group.total),
+      updatedAt: FieldValue.serverTimestamp()
     });
     tx.update(userRef, { puntos: balance - points, updatedAt: FieldValue.serverTimestamp() });
     tx.create(orderRef, { uid, items: lines, subtotal: total, envio: 0, total, puntosUtilizados: points,
@@ -187,4 +201,37 @@ exports.releaseExpiredStockReservations = onSchedule('every 5 minutes', async ()
       tx.update(order.ref, { reservaStock: 'liberada', estado: 'Reserva expirada', updatedAt: FieldValue.serverTimestamp() });
     });
   }
+});
+
+exports.verifyOrderPayment = onCall(async (request) => {
+  const adminUid = requireAdmin(request);
+  const orderId = String(request.data?.orderId || '');
+  if (!orderId) throw new HttpsError('invalid-argument', 'Falta el identificador del pedido.');
+  const orderRef = db.collection('pedidos').doc(orderId);
+  await db.runTransaction(async (tx) => {
+    const orderSnap = await tx.get(orderRef);
+    if (!orderSnap.exists) throw new HttpsError('not-found', 'No se encontró el pedido.');
+    const order = orderSnap.data();
+    if (order.pagoEstado === 'Verificado') return;
+    if (order.reservaStock === 'liberada') throw new HttpsError('failed-precondition', 'La reserva de stock expiró. Revisa la disponibilidad antes de verificar el pago.');
+    const userRef = db.collection('usuarios').doc(order.uid);
+    const userSnap = await tx.get(userRef);
+    const total = Number(order.subtotal || order.total || 0);
+    const earned = Math.max(0, Math.floor(total * 8));
+    if (userSnap.exists && earned > 0 && !order.puntosAcreditados) {
+      const currentPoints = Number(userSnap.data().puntos) || 0;
+      tx.update(userRef, { puntos: currentPoints + earned, updatedAt: FieldValue.serverTimestamp() });
+      tx.create(db.collection('movimientos_puntos').doc(), {
+        uid: order.uid, tipo: 'ganados', puntos: earned, motivo: 'Pedido con pago verificado',
+        pedidoId: orderId, createdAt: FieldValue.serverTimestamp()
+      });
+    }
+    tx.update(orderRef, {
+      estado: 'Verificado', pagoEstado: 'Verificado', reservaStock: 'confirmada',
+      puntosAcreditados: earned > 0, puntosGanados: earned,
+      verificadoPor: adminUid, verificadoAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
+    });
+  });
+  return { success: true, orderId };
 });
