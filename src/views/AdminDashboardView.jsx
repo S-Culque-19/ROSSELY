@@ -153,12 +153,12 @@ export default function AdminDashboardView() {
   const handleGuardarProducto = async (e) => {
     e.preventDefault();
     if (!nombre.trim() || !precio || !costoUnitario) {
-      alert("Por favor complete nombre, precio de venta y precio de costo.");
+      mostrarToast('Completa nombre, precio de venta y precio de costo.');
       return;
     }
 
     if (archivosSeleccionados.length === 0) {
-      alert("Debe seleccionar al menos una fotografía para la prenda.");
+      mostrarToast('Selecciona al menos una fotografía para la prenda.');
       return;
     }
 
@@ -213,7 +213,7 @@ export default function AdminDashboardView() {
       setUnidadesXL('2');
     } catch (err) {
       console.error("Error crítico al registrar producto:", err);
-      alert("Error al subir las imágenes o guardar en base de datos. Verifique su conexión.");
+      mostrarToast(err?.message || 'Error al subir las imágenes o guardar en base de datos.');
     } finally {
       setGuardando(false);
     }
@@ -233,7 +233,7 @@ export default function AdminDashboardView() {
       setTituloAviso('');
       setMensajeAviso('');
     } catch (e) {
-      alert("Error al enviar aviso.");
+      mostrarToast('Error al enviar el aviso gerencial.');
     }
   };
 
