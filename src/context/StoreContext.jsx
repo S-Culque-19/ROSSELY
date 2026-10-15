@@ -29,11 +29,7 @@ const cleanError = (error) => {
 
 export const StoreProvider = ({ children }) => {
   const [productos, setProductos] = useState([]);
-  const [colecciones, setColecciones] = useState([
-    { id: 'col_1', nombre: 'Colección Exclusiva • Atelier ROSSELY' },
-    { id: 'col_2', nombre: 'Edición Seda Imperial' },
-    { id: 'col_3', nombre: 'Satén de Novias & Veladas' }
-  ]);
+  const [colecciones, setColecciones] = useState([]);
   const [pedidos, setPedidos] = useState([]);
   const [avisosGlobales, setAvisosGlobales] = useState([]);
   const [cargandoProductos, setCargandoProductos] = useState(true);
@@ -251,8 +247,7 @@ export const StoreProvider = ({ children }) => {
 
   const agregarColeccionDinamica = async (nombreColeccion) => {
     if (!esAdmin) throw new Error('Operación reservada al administrador.');
-    const docRef = await addDoc(collection(db, 'colecciones'), { nombre: nombreColeccion, createdAt: serverTimestamp() });
-    setColecciones(prev => [...prev, { id: docRef.id, nombre: nombreColeccion }]);
+    await addDoc(collection(db, 'colecciones'), { nombre: nombreColeccion, createdAt: serverTimestamp() });
   };
 
   const navegarA = useCallback((vista, producto = null) => {
