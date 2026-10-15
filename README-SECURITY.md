@@ -36,3 +36,7 @@ firebase deploy --only firestore:rules,storage,functions,hosting
 - La pasarela de pago no se configura porque no se proporcionó un proveedor ni credenciales.
 - Los productos antiguos no publicados dejan de aparecer en la tienda pública; deben revisarse y publicarse desde la administración.
 - Ejecutar pruebas reales requiere acceso al proyecto Firebase y cuentas de prueba autorizadas.
+
+
+## Vista privada de comprobantes
+La administración carga comprobantes con `getBlob` para no generar enlaces públicos con token. Configura CORS del bucket de Storage para permitir `GET` desde los orígenes reales de desarrollo y producción; limita los orígenes a tus dominios y no uses `*` en producción.
