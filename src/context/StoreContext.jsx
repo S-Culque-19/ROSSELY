@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
-  collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, setDoc,
-  serverTimestamp, query, orderBy, where, getDoc, getDocs
+  collection, onSnapshot, addDoc, updateDoc, doc, setDoc,
+  serverTimestamp, query, orderBy, where, getDoc
 } from 'firebase/firestore';
 import {
   onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
