@@ -387,11 +387,11 @@ export default function AdminDashboardView() {
     pedidosFiltrados.forEach(p => {
       const fechaTxt = p.createdAt?.toDate ? p.createdAt.toDate().toLocaleString('es-PE') : 'Reciente';
       (p.items || []).forEach(item => {
-        const pV = parseFloat(item.precio || 0);
-        const cU = item.costoUnitario || pV * 0.4;
+        const pV = parseFloat(item.precioUnitario ?? item.precio ?? 0);
+        const cU = item.costoUnitario || (item.costoUnitario === 0 ? 0 : pV * 0.4);
         const q = item.cantidad || 1;
         const row = worksheet.getRow(rowIndex);
-        row.values = [p.id.slice(0, 8), fechaTxt, p.cliente?.nombre || 'Cliente', p.cliente?.email || 'Sin correo', p.cliente?.ciudad || 'Chimbote', `${item.name || item.nombre} (Talla ${item.tallaSeleccionada || 'M'})`, q, pV * q, cU * q, { formula: `H${rowIndex}-I${rowIndex}` }, p.estado || 'Pendiente'];
+        row.values = [p.id.slice(0, 8), fechaTxt, p.cliente?.nombre || 'Cliente', p.cliente?.email || 'Sin correo', p.cliente?.ciudad || p.cliente?.distrito || p.cliente?.direccion || 'Sin destino', `${item.nombre || item.name} (Talla ${item.talla || item.tallaSeleccionada || 'M'})`, q, pV * q, cU * q, { formula: `H${rowIndex}-I${rowIndex}` }, p.estado || 'Pendiente'];
         row.height = 20;
         row.eachCell((cell, colNumber) => {
           cell.font = { name: 'Arial', size: 9.5 };
