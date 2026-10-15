@@ -52,8 +52,17 @@ exports.createOrder = onCall(async (request) => {
   const items = validateItems(request.data?.items);
   const datosEnvio = request.data?.datosEnvio || {};
   if (!String(datosEnvio.nombre || '').trim() || !String(datosEnvio.telefono || '').trim() ||
-      !String(datosEnvio.direccion || datosEnvio.distrito || '').trim()) {
-    throw new HttpsError('invalid-argument', 'Completa nombre, teléfono y dirección de entrega.');
+      !String(datosEnvio.direccion || datosEnvio.distrito || '').trim() || !/^\\d{8,9}$/.test(String(datosEnvio.dni || ''))) {
+    throw new HttpsError('invalid-argument', 'Completa nombre, teléfono, dirección de entrega y DNI válido.');
+  }
+  const shippingRates = { local: 5, lima: 12, provincia: 15 };
+  const shippingType = String(datosEnvio.tipoEnvio || '');
+  if (!Object.prototype.hasOwnProperty.call(shippingRates, shippingType)) {
+    throw new HttpsError('invalid-argument', 'Selecciona una modalidad de envío válida.');
+  }
+  const receiptPath = request.data?.comprobanteStoragePath;
+  if (typeof receiptPath !== 'string' || !receiptPath.startsWith('comprobantes/' + uid + '/')) {
+    throw new HttpsError('invalid-argument', 'Adjunta un comprobante de pago válido.');
   }
 
   const orderRef = db.collection('pedidos').doc();
@@ -104,15 +113,19 @@ exports.createOrder = onCall(async (request) => {
         updatedAt: FieldValue.serverTimestamp()
       });
     }
-    const shipping = Math.max(0, Math.min(1000, Number(datosEnvio.costoEnvio) || 0));
+    const shipping = shippingRates[shippingType];
     const total = Math.round((subtotal + shipping) * 100) / 100;
     tx.create(orderRef, {
       uid, cliente: {
         nombre: String(datosEnvio.nombre).trim().slice(0, 120),
         email: request.auth.token.email || '',
         telefono: String(datosEnvio.telefono).trim().slice(0, 40),
+        dni: String(datosEnvio.dni).trim().slice(0, 9),
         direccion: String(datosEnvio.direccion || datosEnvio.distrito).trim().slice(0, 500),
-        distrito: String(datosEnvio.distrito || '').trim().slice(0, 120)
+        distrito: String(datosEnvio.distrito || '').trim().slice(0, 120),
+        ciudad: String(datosEnvio.ciudad || datosEnvio.distrito || '').trim().slice(0, 120),
+        agenciaShalom: String(datosEnvio.agenciaShalom || '').trim().slice(0, 250),
+        tipoEnvio: shippingType
       },
       items: lines, subtotal: Math.round(subtotal * 100) / 100, envio: shipping, total,
       estado: 'Pendiente de Verificación', pagoEstado: 'Pendiente de pago',
@@ -173,7 +186,7 @@ exports.redeemPointsForOrder = onCall(async (request) => {
     });
     tx.update(userRef, { puntos: balance - points, updatedAt: FieldValue.serverTimestamp() });
     tx.create(orderRef, { uid, items: lines, subtotal: total, envio: 0, total, puntosUtilizados: points,
-      estado: 'Pagado con puntos', pagoEstado: 'Verificado', reservaStock: 'confirmada',
+      estado: 'Verificado', pagoMetodo: 'puntos', pagoEstado: 'Verificado', reservaStock: 'confirmada',
       createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
     tx.create(db.collection('movimientos_puntos').doc(), { uid, tipo: 'canje', puntos: -points, motivo: 'Pedido con puntos', pedidoId: orderRef.id, createdAt: FieldValue.serverTimestamp() });
   });
