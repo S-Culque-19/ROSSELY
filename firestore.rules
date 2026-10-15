@@ -18,7 +18,9 @@ service cloud.firestore {
       allow create: if owner(uid)
         && request.resource.data.uid == uid
         && request.resource.data.role == 'user'
-        && request.resource.data.puntos == 0;
+        && request.resource.data.puntos == 0
+        && request.resource.data.suscripcion.tipo == 'free'
+        && request.resource.data.keys().hasOnly(['uid','email','nombre','role','puntos','suscripcion','fechaRegistro','createdAt']);
       allow update: if admin()
         || (owner(uid)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nombre','telefono','direccion','updatedAt'])
@@ -52,7 +54,13 @@ service cloud.firestore {
     match /suscripciones_pendientes/{id} {
       allow read: if admin() || (signedIn() && resource.data.uid == request.auth.uid);
       allow create: if signedIn() && request.resource.data.uid == request.auth.uid
-        && request.resource.data.estado == 'Por Verificar';
+        && request.resource.data.estado == 'Por Verificar'
+        && request.resource.data.monto == 60
+        && request.resource.data.numeroOperacion is string
+        && request.resource.data.numeroOperacion.size() > 0
+        && request.resource.data.comprobantePath is string
+        && request.resource.data.comprobantePath.matches('comprobantes/' + request.auth.uid + '/.*')
+        && request.resource.data.keys().hasOnly(['uid','nombre','email','monto','numeroOperacion','comprobantePath','estado','createdAt']);
       allow update, delete: if admin();
     }
     match /avisos_gerenciales/{id} { allow read: if admin(); allow write: if admin(); }
