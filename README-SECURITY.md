@@ -23,7 +23,7 @@ firebase deploy --only firestore:rules,storage,functions,hosting
 ```
 
 ## Funciones de servidor incluidas en esta rama
-- `createOrder`: valida usuario, precio, estado publicado y stock en el servidor; descuenta existencias en transacción y crea reserva de 15 minutos.
+- `createOrder`: valida usuario, precio, estado publicado y stock en el servidor; descuenta existencias en transacción y crea reserva de 24 horas.
 - `releaseExpiredStockReservations`: tarea programada para liberar reservas expiradas.
 - `redeemPointsForOrder`: valida saldo y stock, crea pedido y registra el movimiento de puntos en una transacción.
 - `verifyOrderPayment`: confirma el pago solo desde una cuenta con claim administrativo y acredita puntos una sola vez.
