@@ -13,6 +13,7 @@ export default function SubscriptionView() {
   const [previewUrl, setPreviewUrl] = useState('');
   const [procesando, setProcesando] = useState(false);
   const [enviadoExito, setEnviadoExito] = useState(false);
+  const [errorSolicitud, setErrorSolicitud] = useState('');
 
   if (authCargando) return <div className="min-h-[60vh] flex items-center justify-center text-sm text-[#701A3B]">Verificando sesión segura…</div>;
   if (!usuarioActual) {
@@ -30,8 +31,9 @@ export default function SubscriptionView() {
 
   const handleEnviarSuscripcion = async (e) => {
     e.preventDefault();
+    setErrorSolicitud('');
     if (!numeroOperacion.trim() || !comprobanteFile) {
-      alert("Por favor ingresa el número de operación y adjunta la captura del pago.");
+      setErrorSolicitud('Ingresa el número de operación y adjunta la captura del pago.');
       return;
     }
 
@@ -58,7 +60,7 @@ export default function SubscriptionView() {
       setEnviadoExito(true);
     } catch (err) {
       console.error("Error al enviar suscripción:", err);
-      alert("No se pudo enviar el comprobante.");
+      setErrorSolicitud(err?.message || 'No se pudo enviar el comprobante.');
     } finally {
       setProcesando(false);
     }
@@ -115,6 +117,7 @@ export default function SubscriptionView() {
           </div>
         ) : (
           <form onSubmit={handleEnviarSuscripcion} className="space-y-5 max-w-md mx-auto text-xs">
+            {errorSolicitud && <div role="alert" className="p-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-800">{errorSolicitud}</div>}
             <div>
               <label className="block font-bold text-stone-700 uppercase tracking-wider mb-1">Número de Operación Yape / Plin *</label>
               <input 
