@@ -228,6 +228,11 @@ export const StoreProvider = ({ children }) => {
 
   const actualizarEstadoPedido = async (id, nuevoEstado) => {
     if (!esAdmin) throw new Error('Operación reservada al administrador.');
+    if (['Verificado', 'Pago verificado'].includes(nuevoEstado)) {
+      const verificar = httpsCallable(functions, 'verifyOrderPayment');
+      await verificar({ orderId: id });
+      return;
+    }
     await updateDoc(doc(db, 'pedidos', id), { estado: nuevoEstado, updatedAt: serverTimestamp() });
   };
 
