@@ -74,7 +74,7 @@ export const StoreProvider = ({ children }) => {
       };
       setUsuarioActual(user);
       if (admin) setCurrentView((v) => v === 'auth' ? 'admin' : v);
-      else setCurrentView((v) => v === 'admin' ? 'home' : v);
+      else setCurrentView((v) => (v === 'admin' || v === 'auth') ? 'home' : v);
     } catch (error) {
       console.error('No se pudo cargar el perfil autenticado:', error);
       setUsuarioActual({
