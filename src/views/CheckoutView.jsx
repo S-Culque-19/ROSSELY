@@ -18,6 +18,7 @@ export default function CheckoutView() {
   
   const [procesando, setProcesando] = useState(false);
   const [pedidoCompletadoId, setPedidoCompletadoId] = useState(null);
+  const [errorCompra, setErrorCompra] = useState('');
 
   // Cálculo de Envíos Shalom
   const subtotal = carrito.reduce((acc, it) => acc + (parseFloat(it.precio || 0) * (it.cantidad || 1)), 0);
@@ -34,7 +35,7 @@ export default function CheckoutView() {
     const f = e.target.files[0];
     if (f) {
       if (!['image/jpeg', 'image/png', 'image/webp'].includes(f.type) || f.size > 8 * 1024 * 1024) {
-        alert('Adjunta una imagen JPEG, PNG o WebP de máximo 8 MB.');
+        setErrorCompra('Adjunta una imagen JPEG, PNG o WebP de máximo 8 MB.');
         e.target.value = '';
         return;
       }
@@ -45,10 +46,11 @@ export default function CheckoutView() {
 
   const handleConfirmarCompra = async (e) => {
     e.preventDefault();
-    if (carrito.length === 0) return alert("Tu bolsa de compras está vacía.");
-    if (!/^\d{8,9}$/.test(dni)) return alert("Por favor ingresa un DNI válido de 8 o 9 dígitos para el recojo en Shalom.");
-    if (!telefono.trim()) return alert('Ingresa un teléfono de contacto válido.');
-    if (!comprobanteFile) return alert("Por favor adjunta la captura del comprobante de transferencia o QR.");
+    setErrorCompra('');
+    if (carrito.length === 0) return setErrorCompra('Tu bolsa de compras está vacía.');
+    if (!/^\d{8,9}$/.test(dni)) return setErrorCompra('Por favor ingresa un DNI válido de 8 o 9 dígitos para el recojo en Shalom.');
+    if (!telefono.trim()) return setErrorCompra('Ingresa un teléfono de contacto válido.');
+    if (!comprobanteFile) return setErrorCompra('Adjunta la captura del comprobante de transferencia o QR.');
 
     setProcesando(true);
     try {
@@ -68,7 +70,7 @@ export default function CheckoutView() {
       setPedidoCompletadoId(idGenerado);
     } catch (err) {
       console.error(err);
-      alert("Hubo un problema procesando el comprobante.");
+      setErrorCompra(err?.message || 'Hubo un problema procesando el comprobante.');
     } finally {
       setProcesando(false);
     }
@@ -107,6 +109,7 @@ export default function CheckoutView() {
         
         {/* Formulario Logístico Shalom */}
         <form onSubmit={handleConfirmarCompra} className="lg:col-span-7 bg-white p-8 rounded-3xl border border-[#FCE4EC] shadow-xs space-y-5">
+          {errorCompra && <div role="alert" className="p-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-800 text-xs">{errorCompra}</div>}
           <div className="border-b border-stone-100 pb-3">
             <h2 className="font-serif text-2xl font-bold text-stone-900">Datos para Despacho Shalom</h2>
             <p className="text-[11px] text-stone-500 font-light mt-0.5">
