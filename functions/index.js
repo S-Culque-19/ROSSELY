@@ -57,7 +57,7 @@ exports.createOrder = onCall(async (request) => {
   }
 
   const orderRef = db.collection('pedidos').doc();
-  const expiresAt = Timestamp.fromMillis(Date.now() + 15 * 60 * 1000);
+  const expiresAt = Timestamp.fromMillis(Date.now() + 24 * 60 * 60 * 1000);
   await db.runTransaction(async (tx) => {
     const refs = [...new Set(items.map(i => i.productId))].map(id => db.collection('productos').doc(id));
     const snapshots = await Promise.all(refs.map(ref => tx.get(ref)));
@@ -121,7 +121,7 @@ exports.createOrder = onCall(async (request) => {
       createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()
     });
   });
-  return { orderId: orderRef.id, status: 'Pendiente de Verificación', reservationExpiresInMinutes: 15 };
+  return { orderId: orderRef.id, status: 'Pendiente de Verificación', reservationExpiresInHours: 24 };
 });
 
 exports.redeemPointsForOrder = onCall(async (request) => {
@@ -133,6 +133,11 @@ exports.redeemPointsForOrder = onCall(async (request) => {
     const userSnap = await tx.get(userRef);
     if (!userSnap.exists) throw new HttpsError('failed-precondition', 'No se encontró el perfil.');
     const user = userSnap.data();
+    const subscription = user.suscripcion || {};
+    const membershipExpiry = subscription.fechaExpiracion ? new Date(subscription.fechaExpiracion).getTime() : 0;
+    if (subscription.tipo !== 'premium' || !Number.isFinite(membershipExpiry) || membershipExpiry <= Date.now()) {
+      throw new HttpsError('failed-precondition', 'Necesitas una membresía activa para canjear puntos.');
+    }
     const balance = Number(user.puntos) || 0;
     const productRefs = [...new Set(items.map(i => i.productId))].map(id => db.collection('productos').doc(id));
     const productSnaps = await Promise.all(productRefs.map(ref => tx.get(ref)));
