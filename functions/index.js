@@ -109,7 +109,7 @@ exports.createOrder = onCall(async (request) => {
       },
       items: lines, subtotal: Math.round(subtotal * 100) / 100, envio: shipping, total,
       estado: 'Pendiente de Verificación', pagoEstado: 'Pendiente de pago',
-      comprobanteStoragePath: typeof request.data?.comprobanteStoragePath === 'string' ? request.data.comprobanteStoragePath : null,
+      comprobanteStoragePath: typeof request.data?.comprobanteStoragePath === 'string' && request.data.comprobanteStoragePath.startsWith('comprobantes/' + uid + '/') ? request.data.comprobanteStoragePath : null,
       reservaStock: 'activa', reservaExpiraAt: expiresAt,
       createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()
     });
