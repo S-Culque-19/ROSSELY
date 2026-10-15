@@ -4,7 +4,9 @@
 // ============================================================================
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../context/StoreContext';
-import { db } from '../firebase';
+import { db, functions, storage } from '../firebase';
+import { httpsCallable } from 'firebase/functions';
+import { ref, getDownloadURL } from 'firebase/storage';
 import { 
   collection, 
   addDoc, 
@@ -286,17 +288,30 @@ export default function AdminDashboardView() {
 
   const handleVerificarSuscripcion = async (subId, userId, nuevoEstado) => {
     try {
-      await updateDoc(doc(db, 'suscripciones_pendientes', subId), { estado: nuevoEstado });
       if (nuevoEstado === 'Verificado') {
-        const fechaExp = new Date();
-        fechaExp.setDate(fechaExp.getDate() + 30);
-        await updateDoc(doc(db, 'usuarios', userId), {
-          suscripcion: { tipo: 'premium', fechaExpiracion: fechaExp.toISOString() },
-          puntos: 100
+        const verificar = httpsCallable(functions, 'verifySubscriptionPayment');
+        await verificar({ subscriptionId: subId });
+        mostrarToast('Suscripción aprobada; beneficios activados por 30 días.');
+      } else {
+        await updateDoc(doc(db, 'suscripciones_pendientes', subId), {
+          estado: nuevoEstado, revisadoPor: auth.currentUser?.uid || null, revisadoAt: serverTimestamp()
         });
-        mostrarToast("✦ Suscripción aprobada y verificada.");
+        mostrarToast('Solicitud actualizada: ' + nuevoEstado + '.');
       }
-    } catch (err) {}
+    } catch (err) {
+      console.error('No se pudo verificar la suscripción:', err);
+      mostrarToast(err?.message || 'No se pudo actualizar la suscripción.');
+    }
+  };
+
+  const abrirComprobante = async (path) => {
+    if (!path) return mostrarToast('Esta solicitud no tiene un comprobante adjunto.');
+    try {
+      const url = await getDownloadURL(ref(storage, path));
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      mostrarToast('No se pudo abrir el comprobante. Verifica los permisos de Storage.');
+    }
   };
 
   const ahora = new Date();
@@ -731,13 +746,14 @@ export default function AdminDashboardView() {
               <div>
                 <p className="font-bold text-[#701A3B]">{sub.nombre} ({sub.email})</p>
                 <p className="text-stone-600">Nº Operación Yape: <strong className="font-mono">{sub.numeroOperacion}</strong></p>
+                <button type="button" onClick={() => abrirComprobante(sub.comprobantePath)} className="mt-2 text-[#701A3B] underline font-bold">Ver comprobante privado</button>
               </div>
               <div className="flex items-center gap-3">
                 <span className={`px-3 py-1 rounded-full font-bold text-[10px] ${sub.estado === 'Verificado' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
                   {sub.estado === 'Verificado' ? '✓ Verificado (Check Verde)' : '✕ Por Verificar (X Roja)'}
                 </span>
-                <button onClick={() => handleVerificarSuscripcion(sub.id, sub.uid, sub.estado === 'Verificado' ? 'Por Verificar' : 'Verificado')} className="bg-[#701A3B] text-white px-4 py-2 rounded-xl font-bold uppercase cursor-pointer">
-                  {sub.estado === 'Verificado' ? 'Marcar Pendiente' : 'Aprobar y Verificar'}
+                <button onClick={() => handleVerificarSuscripcion(sub.id, sub.uid, sub.estado === 'Por Verificar' ? 'Verificado' : 'Rechazado')} disabled={sub.estado !== 'Por Verificar'} className="bg-[#701A3B] disabled:opacity-50 text-white px-4 py-2 rounded-xl font-bold uppercase cursor-pointer">
+                  {sub.estado === 'Verificado' ? 'Aprobada' : sub.estado === 'Rechazado' ? 'Rechazada' : 'Aprobar y Verificar'}
                 </button>
               </div>
             </div>
