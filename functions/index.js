@@ -273,3 +273,26 @@ exports.verifySubscriptionPayment = onCall(async (request) => {
   });
   return { success: true, subscriptionId };
 });
+
+exports.updateOrderStatus = onCall(async (request) => {
+  const adminUid = requireAdmin(request);
+  const orderId = String(request.data?.orderId || '');
+  const nextStatus = String(request.data?.status || '');
+  const allowed = ['En Confección/Empaque', 'Dejado en Shalom Chimbote', 'En Tránsito a Destino', 'Entregado'];
+  if (!orderId || !allowed.includes(nextStatus)) throw new HttpsError('invalid-argument', 'Estado o pedido no válido.');
+  const orderRef = db.collection('pedidos').doc(orderId);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(orderRef);
+    if (!snap.exists) throw new HttpsError('not-found', 'No se encontró el pedido.');
+    const order = snap.data();
+    if (order.pagoEstado !== 'Verificado') throw new HttpsError('failed-precondition', 'Verifica el pago antes de preparar o despachar el pedido.');
+    const flow = ['Verificado', 'En Confección/Empaque', 'Dejado en Shalom Chimbote', 'En Tránsito a Destino', 'Entregado'];
+    const currentIndex = flow.indexOf(order.estado);
+    const nextIndex = flow.indexOf(nextStatus);
+    if (currentIndex < 0 || nextIndex !== currentIndex + 1) {
+      throw new HttpsError('failed-precondition', 'El pedido debe avanzar al siguiente estado del flujo logístico.');
+    }
+    tx.update(orderRef, { estado: nextStatus, actualizadoPor: adminUid, updatedAt: FieldValue.serverTimestamp() });
+  });
+  return { success: true, orderId, status: nextStatus };
+});
